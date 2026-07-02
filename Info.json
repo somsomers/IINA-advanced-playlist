@@ -25,6 +25,7 @@
     "hk_prev": "z",
     "hk_next": "c",
     "hk_seekBack": "",
-    "hk_seekFwd": ""
+    "hk_seekFwd": "",
+    "ytdlpPath": ""
   }
 }

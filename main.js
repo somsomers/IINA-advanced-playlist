@@ -369,6 +369,112 @@ function postScanState() {
 }
 
 // ---------------------------------------------------------------------------
+// yt-dlp integration: enrich network (YouTube etc.) items with artist/album/track,
+// and expand a pasted URL (single video OR a whole playlist) into tracks.
+// mpv only forwards the title of a YouTube stream, so we ask yt-dlp directly.
+// All calls are async (iina.utils.exec) so nothing blocks.
+// ---------------------------------------------------------------------------
+let ytdlpPath = null;   // cached only once found (so a path set later in prefs is picked up)
+let ytQueue = [];
+let ytRunning = false;
+const ytAttempted = {}; // url -> true (don't retry endlessly)
+
+function findYtdlp() {
+  if (ytdlpPath) return ytdlpPath;
+  const cands = [];
+  try { const p = preferences.get("ytdlpPath"); if (p) cands.push(String(p)); } catch (e) { }
+  cands.push("/opt/homebrew/bin/yt-dlp", "/usr/local/bin/yt-dlp",
+             "/opt/homebrew/bin/youtube-dl", "/usr/local/bin/youtube-dl");
+  for (let i = 0; i < cands.length; i++) {
+    try { if (cands[i] && file.exists(cands[i])) { ytdlpPath = cands[i]; break; } } catch (e) { }
+  }
+  return ytdlpPath;
+}
+
+function enqueueEnrich(urls, front) {
+  if (!findYtdlp()) return;
+  urls.forEach(function (u) {
+    if (!isNetwork(u) || ytAttempted[u]) return;
+    const c = metaCache[u] || {};
+    if (c.artist && c.album) return;           // already rich
+    if (ytQueue.indexOf(u) >= 0) return;
+    if (front) ytQueue.unshift(u); else ytQueue.push(u);
+  });
+  if (!ytRunning) runEnrich();
+}
+function runEnrich() {
+  if (ytQueue.length === 0) { ytRunning = false; return; }
+  ytRunning = true;
+  const url = ytQueue.shift();
+  ytAttempted[url] = true;
+  utils.exec(ytdlpPath, ["--no-playlist", "--print", "%(artist,creator,uploader|)s",
+                         "--print", "%(album|)s", "--print", "%(track,title|)s", url])
+    .then(function (res) {
+      if (res && res.status === 0 && res.stdout) {
+        const p = res.stdout.split("\n");
+        let artist = cleanStr((p[0] || "").trim()).replace(/\s*-\s*Topic$/i, "");
+        let album = cleanStr((p[1] || "").trim());
+        let title = cleanStr((p[2] || "").trim());
+        if (artist === "NA") artist = "";
+        if (album === "NA") album = "";
+        if (title === "NA") title = "";
+        const entry = metaCache[url] || {};
+        if (artist) entry.artist = artist;
+        if (album) entry.album = album;
+        if (title && !entry.title) entry.title = title;
+        entry.scanned = true;
+        metaCache[url] = entry;
+        postMeta(url, entry);
+        persistCache();
+        updateWindowTitle();
+      }
+    })
+    .catch(function () { })
+    .then(function () { runEnrich(); });
+}
+
+// Add a URL. yt-dlp flat extraction handles both a single video and a full
+// playlist (one entry vs many); non-yt-dlp URLs are added as-is.
+function addUrl(url) {
+  url = String(url || "").trim();
+  if (!url) return;
+  if (!findYtdlp() || !/^https?:\/\//i.test(url)) {
+    playlist.add(url, -1); setTimeout(onPlaylistChanged, 150); return;
+  }
+  core.osd("Fetching…");
+  utils.exec(ytdlpPath, ["--flat-playlist", "--print",
+                         "%(webpage_url,url)s\t%(title|)s\t%(uploader,channel|)s", url])
+    .then(function (res) {
+      const urls = [];
+      if (res && res.status === 0 && res.stdout && res.stdout.trim()) {
+        res.stdout.split("\n").forEach(function (ln) {
+          if (!ln.trim()) return;
+          const c = ln.split("\t");
+          const vurl = (c[0] || "").trim();
+          if (!vurl) return;
+          urls.push(vurl);
+          const entry = metaCache[vurl] || {};
+          const title = cleanStr((c[1] || "").trim());
+          const artist = cleanStr((c[2] || "").trim()).replace(/\s*-\s*Topic$/i, "");
+          if (title && title !== "NA" && !entry.title) entry.title = title;
+          if (artist && artist !== "NA" && !entry.artist) entry.artist = artist;
+          metaCache[vurl] = entry; // no scanned flag → full enrichment still runs
+        });
+      }
+      if (urls.length) {
+        playlist.add(urls, -1);
+        persistCache();
+        core.osd("Added " + urls.length + (urls.length === 1 ? " track" : " tracks"));
+        enqueueEnrich(urls);
+        setTimeout(onPlaylistChanged, 200);
+      } else {
+        playlist.add(url, -1); setTimeout(onPlaylistChanged, 150);
+      }
+    })
+    .catch(function () { playlist.add(url, -1); setTimeout(onPlaylistChanged, 150); });
+}
+
+// ---------------------------------------------------------------------------
 // State <-> UI
 // ---------------------------------------------------------------------------
 function buildItems() {
@@ -569,9 +675,13 @@ function savePlaylist() {
   const lines = ["#EXTM3U"];
   l.forEach(function (it) {
     const c = metaCache[it.filename] || {};
+    const title = c.title || it.title || stripExt(baseName(it.filename)); // it.title captures e.g. a YouTube title
+    const artist = c.artist || "";
+    const album = c.album || "";
     const dur = Math.round(c.duration || 0);
-    const disp = (c.artist ? c.artist + " - " : "") + (c.title || stripExt(baseName(it.filename)));
-    lines.push("#EXTINF:" + dur + "," + disp);
+    lines.push("#EXTINF:" + dur + "," + (artist ? artist + " - " : "") + title);
+    // Rich metadata so titles/artist/album survive a round-trip (mpv ignores unknown # comments).
+    lines.push("#PLAYLISTPRO:" + JSON.stringify({ t: title, a: artist, al: album, d: dur }));
     lines.push(it.filename);
   });
   try {
@@ -580,16 +690,41 @@ function savePlaylist() {
     sendSavedList();
   } catch (e) { core.osd("Save failed"); console.log("save failed: " + e); }
 }
+// Repopulate metaCache from the #PLAYLISTPRO lines we wrote, so titles/artist/album show
+// immediately after loading — mpv's loadlist does not restore #EXTINF titles.
+function restoreMetaFromM3U(path) {
+  try {
+    const content = file.read(path);
+    if (!content) return;
+    const lines = content.split(/\r?\n/);
+    let pending = null;
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i];
+      if (line.indexOf("#PLAYLISTPRO:") === 0) {
+        try { pending = JSON.parse(line.slice(13)); } catch (e) { pending = null; }
+      } else if (line && line.charAt(0) !== "#") {
+        const url = line.trim();
+        if (url && pending && (pending.t || pending.a || pending.al)) {
+          metaCache[url] = { title: pending.t || "", artist: pending.a || "", album: pending.al || "", duration: pending.d || 0, scanned: true };
+        }
+        pending = null;
+      }
+    }
+    persistCache();
+  } catch (e) { console.log("restoreMetaFromM3U: " + e); }
+}
 function loadPlaylist(name) {
-  const abs = utils.resolvePath("@data/" + PLAYLIST_PREFIX + sanitize(name) + PLAYLIST_EXT);
-  if (!abs || !file.exists("@data/" + PLAYLIST_PREFIX + sanitize(name) + PLAYLIST_EXT)) { core.osd("Playlist not found"); return; }
+  const rel = "@data/" + PLAYLIST_PREFIX + sanitize(name) + PLAYLIST_EXT;
+  const abs = utils.resolvePath(rel);
+  if (!abs || !file.exists(rel)) { core.osd("Playlist not found"); return; }
+  restoreMetaFromM3U(rel);
   mpv.command("loadlist", [abs, "replace"]);
   core.osd("Loaded playlist: " + sanitize(name));
   setTimeout(onPlaylistChanged, 350);
 }
 function importPlaylist() {
   utils.chooseFile("Import a playlist file", { allowedFileTypes: ["m3u", "m3u8", "pls"] })
-    .then(function (p) { if (p) { mpv.command("loadlist", [p, "replace"]); setTimeout(onPlaylistChanged, 350); } })
+    .then(function (p) { if (p) { restoreMetaFromM3U(p); mpv.command("loadlist", [p, "replace"]); setTimeout(onPlaylistChanged, 350); } })
     .catch(function () { });
 }
 function deleteSaved(name) {
@@ -702,6 +837,10 @@ function registerHandlers(surface, isStandalone) {
     }
   });
   surface.onMessage("ui:add", function () { addFiles(); });
+  surface.onMessage("ui:addurl", function () {
+    const url = utils.prompt("Add a URL — a single video or a playlist:");
+    if (url) addUrl(url);
+  });
   surface.onMessage("ui:clear", function () { clearPlaylist(); });
   surface.onMessage("ui:reveal", function (d) { if (d && d.path) { try { file.showInFinder(d.path); } catch (e) { } } });
   surface.onMessage("ui:save", function () { savePlaylist(); });
@@ -782,6 +921,7 @@ function applyMainHidden(hidden) {
 // ---------------------------------------------------------------------------
 // mpv metadata for the current file — always authoritative.
 // ---------------------------------------------------------------------------
+let lastCurMetaSig = "";
 function refreshCurrentMetadata() {
   try {
     const md = mpv.getNative("metadata") || {};
@@ -794,9 +934,27 @@ function refreshCurrentMetadata() {
     if (!cur) return;
     const path = cur.filename;
     const entry = metaCache[path] || {};
-    const title = norm["title"] || norm["media-title"];
-    const artist = norm["artist"] || norm["album_artist"] || norm["albumartist"];
-    const album = norm["album"];
+    let title = norm["title"] || "";
+    let artist = norm["artist"] || norm["album_artist"] || norm["albumartist"] || norm["uploader"] || norm["channel"] || "";
+    const album = norm["album"] || "";
+
+    // YouTube/ytdl streams usually carry no artist/album tags; the title arrives as
+    // media-title, and (when present) the artist channel is often "Name - Topic".
+    if (!title) {
+      const mt = cleanStr(mpv.getString("media-title") || "");
+      if (mt && mt !== path && mt !== baseName(path)) title = mt;
+    }
+    if (artist) artist = cleanStr(String(artist)).replace(/\s*-\s*Topic$/i, "");
+
+    // Internet-radio streams often expose only "icy-title" as "Artist - Title".
+    const icy = norm["icy-title"];
+    if (icy) {
+      const s = cleanStr(String(icy));
+      const dash = s.indexOf(" - ");
+      if (dash > 0 && !artist) { artist = s.slice(0, dash); if (!title) title = s.slice(dash + 3); }
+      else if (!title) { title = s; }
+    }
+
     if (title) entry.title = cleanStr(String(title));
     if (artist) entry.artist = cleanStr(String(artist));
     if (album) entry.album = cleanStr(String(album));
@@ -804,6 +962,11 @@ function refreshCurrentMetadata() {
     if (dur && dur > 0) entry.duration = dur;
     entry.scanned = true;
     metaCache[path] = entry;
+
+    // This also runs on a 1s poll (to catch live stream/ICY changes) — only push when changed.
+    const sig = path + "|" + (entry.title || "") + "|" + (entry.artist || "") + "|" + (entry.album || "");
+    if (sig === lastCurMetaSig) return;
+    lastCurMetaSig = sig;
     postMeta(path, entry);
     persistCache();
     updateWindowTitle();
@@ -816,7 +979,15 @@ function refreshCurrentMetadata() {
 loadCache();
 refreshHotkeys(true); // register playback hotkeys for the main player window
 
-event.on("iina.file-loaded", function () { refreshCurrentMetadata(); scheduleState(); broadcastTransport(true); updateWindowTitle(); });
+event.on("iina.file-loaded", function () {
+  refreshCurrentMetadata(); scheduleState(); broadcastTransport(true); updateWindowTitle();
+  // Lazily enrich the currently playing network track (YouTube etc.) via yt-dlp.
+  try {
+    const l = playlist.list();
+    const cur = l.filter(function (x) { return x.isCurrent; })[0];
+    if (cur && isNetwork(cur.filename)) enqueueEnrich([cur.filename], true);
+  } catch (e) { }
+});
 event.on("iina.file-started", function () { scheduleState(); broadcastTransport(true); });
 
 // Keep the UI in sync with playlist changes made elsewhere (native list, drops, etc.),
@@ -828,6 +999,7 @@ setInterval(function () {
     if (weMinimized && !standaloneWindow.isOpen()) { applyMainHidden(false); } // restore, keep the pref
     broadcastTransport(); // reflect pause/loop changes made elsewhere (e.g. spacebar)
     refreshHotkeys();     // pick up hotkey edits made on the preferences page
+    refreshCurrentMetadata(); // catch live stream (ICY) metadata updates
   } catch (e) { }
 }, 1000);
 

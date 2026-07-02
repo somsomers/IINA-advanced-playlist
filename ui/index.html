@@ -197,6 +197,7 @@
     </div>
     <div class="toolbar-row">
       <button id="add" class="btn" title="Add media files">＋ Add</button>
+      <button id="addurl" class="btn icon" title="Add a URL (single video or a playlist)">🔗</button>
       <div class="dropdown">
         <button id="loadBtn" class="btn" title="Load a saved playlist">▾ Load</button>
         <div id="loadMenu" class="menu"></div>
@@ -299,11 +300,9 @@
       var cls = "row" + (selection[it.i] ? " selected" : "") + (it.isPlaying || it.isCurrent ? " playing" : "");
       // Line order (top → bottom): artist · album, then the track name.
       // With no tags we skip the top line so the file name isn't shown twice.
-      var sub = it.isNetwork
-        ? "Network stream"
-        : (it.artist || it.album)
-          ? esc([it.artist, it.album].filter(Boolean).join("  ·  "))
-          : "";
+      var sub = (it.artist || it.album)
+        ? esc([it.artist, it.album].filter(Boolean).join("  ·  "))
+        : (it.isNetwork ? "Network stream" : "");
       var status = (it.isPlaying || it.isCurrent) ? "▶" : "";
       html += "<div class='" + cls + "' data-i='" + it.i + "' data-path='" + esc(it.path) + "'"
         + (canDrag ? " draggable='true'" : "") + ">"
@@ -585,6 +584,7 @@
   });
 
   $("add").addEventListener("click", function () { send("ui:add"); });
+  $("addurl").addEventListener("click", function () { send("ui:addurl"); });
   $("save").addEventListener("click", function () { send("ui:save"); });
   $("clear").addEventListener("click", function () { send("ui:clear"); });
   $("refresh").addEventListener("click", function () { send("ui:refresh"); });

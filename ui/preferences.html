@@ -41,6 +41,12 @@
   }
   .clear:hover { color: var(--fg); }
   .foot { color: var(--fg2); font-size: 11.5px; margin-top: 16px; }
+  .txt {
+    flex: 0 0 280px; border: 1px solid var(--sep); border-radius: 7px; background: var(--field);
+    color: var(--fg); padding: 6px 10px; font-size: 12.5px;
+    -webkit-user-select: text; user-select: text;
+  }
+  .txt:focus { outline: none; border-color: var(--accent); }
 </style>
 </head>
 <body>
@@ -53,6 +59,16 @@
 
   <p class="foot">Press <b>Esc</b> while recording to cancel. Use the ✕ button to unbind.
     For printable keys, Shift is folded into the character (e.g. Shift+X shows as “X”).</p>
+
+  <h2 style="margin-top:22px">Online metadata (yt-dlp)</h2>
+  <p class="hint">For YouTube and other sites the plugin asks <b>yt-dlp</b> for
+    artist / album / track (mpv only forwards the title). It is auto-detected in
+    common locations — set a custom path only if it isn't found.</p>
+  <div class="row">
+    <span class="label">yt-dlp path</span>
+    <input id="ytpath" class="txt" type="text" placeholder="/usr/local/bin/yt-dlp"
+      spellcheck="false" autocapitalize="off" autocomplete="off">
+  </div>
 
 <script>
 (function () {
@@ -148,6 +164,11 @@
   }, true);
 
   render();
+
+  // yt-dlp path field
+  var ytinput = document.getElementById("ytpath");
+  prefs.get("ytdlpPath", function (v) { ytinput.value = v || ""; });
+  ytinput.addEventListener("change", function () { prefs.set("ytdlpPath", ytinput.value.trim()); });
 })();
 </script>
 </body>
