@@ -1,0 +1,658 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Advanced Playlist</title>
+<style>
+  :root {
+    --fg: #1d1d1f;
+    --fg-secondary: rgba(0,0,0,0.5);
+    --fg-tertiary: rgba(0,0,0,0.35);
+    --sep: rgba(0,0,0,0.08);
+    --row-hover: rgba(0,0,0,0.05);
+    --row-sel: rgba(0,122,255,0.16);
+    --accent: #007aff;
+    --toolbar-bg: rgba(255,255,255,0.55);
+    --field-bg: rgba(0,0,0,0.06);
+    --menu-bg: rgba(250,250,250,0.98);
+    --menu-shadow: rgba(0,0,0,0.25);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --fg: #f5f5f7;
+      --fg-secondary: rgba(255,255,255,0.55);
+      --fg-tertiary: rgba(255,255,255,0.35);
+      --sep: rgba(255,255,255,0.09);
+      --row-hover: rgba(255,255,255,0.06);
+      --row-sel: rgba(10,132,255,0.28);
+      --accent: #0a84ff;
+      --toolbar-bg: rgba(40,40,42,0.55);
+      --field-bg: rgba(255,255,255,0.10);
+      --menu-bg: rgba(50,50,52,0.98);
+      --menu-shadow: rgba(0,0,0,0.5);
+    }
+  }
+  * { box-sizing: border-box; -webkit-user-select: none; user-select: none; }
+  html, body {
+    margin: 0; height: 100%; overflow: hidden;
+    font: 13px/1.3 -apple-system, BlinkMacSystemFont, "Helvetica Neue", sans-serif;
+    color: var(--fg);
+  }
+  body { display: flex; flex-direction: column; }
+
+  /* Toolbar */
+  .toolbar {
+    flex: 0 0 auto; padding: 8px; display: flex; flex-direction: column; gap: 8px;
+    background: var(--toolbar-bg); backdrop-filter: blur(20px);
+    border-bottom: 1px solid var(--sep); position: relative; z-index: 5;
+  }
+  .toolbar-row { display: flex; gap: 6px; align-items: center; }
+  .search {
+    flex: 1 1 auto; display: flex; align-items: center; gap: 6px;
+    background: var(--field-bg); border-radius: 7px; padding: 4px 8px;
+  }
+  .search svg { flex: 0 0 auto; opacity: 0.5; }
+  .search input {
+    flex: 1 1 auto; border: 0; background: transparent; outline: none;
+    color: var(--fg); font-size: 13px;
+  }
+  select.sort {
+    -webkit-appearance: none; appearance: none; border: 0; border-radius: 7px;
+    background: var(--field-bg); color: var(--fg); padding: 5px 22px 5px 8px; font-size: 12px;
+    background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='8' height='8' viewBox='0 0 8 8'><path d='M0 2l4 4 4-4' fill='none' stroke='gray' stroke-width='1.3'/></svg>");
+    background-repeat: no-repeat; background-position: right 7px center;
+    cursor: pointer;
+  }
+  .btn {
+    border: 0; border-radius: 7px; background: var(--field-bg); color: var(--fg);
+    padding: 5px 9px; font-size: 12px; cursor: pointer; display: inline-flex;
+    align-items: center; gap: 5px; white-space: nowrap;
+  }
+  .btn:hover { background: rgba(128,128,128,0.22); }
+  .btn:active { transform: translateY(0.5px); }
+  .btn.icon { padding: 5px 7px; }
+  .btn.active { background: var(--accent); color: #fff; }
+  .btn.active:hover { background: var(--accent); opacity: 0.9; }
+  .btn.dir { min-width: 26px; justify-content: center; }
+  .spacer { flex: 1 1 auto; }
+
+  /* Saved playlists dropdown */
+  .dropdown { position: relative; }
+  .menu {
+    position: absolute; top: 100%; left: 0; margin-top: 4px; min-width: 200px;
+    background: var(--menu-bg); backdrop-filter: blur(20px);
+    border: 1px solid var(--sep); border-radius: 9px; padding: 5px;
+    box-shadow: 0 8px 26px var(--menu-shadow); z-index: 50; display: none;
+    max-height: 320px; overflow-y: auto;
+  }
+  .menu.open { display: block; }
+  .menu .mi {
+    display: flex; align-items: center; gap: 6px; padding: 6px 8px; border-radius: 6px;
+    cursor: pointer; font-size: 12.5px;
+  }
+  .menu .mi:hover { background: var(--accent); color: #fff; }
+  .menu .mi .name { flex: 1 1 auto; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .menu .mi .del { opacity: 0.55; padding: 0 3px; border-radius: 4px; }
+  .menu .mi .del:hover { background: rgba(255,255,255,0.25); opacity: 1; }
+  .menu .sep { height: 1px; background: var(--sep); margin: 5px 4px; }
+  .menu .empty { padding: 8px; color: var(--fg-secondary); font-size: 12px; text-align: center; }
+
+  /* List */
+  .list-wrap { flex: 1 1 auto; overflow-y: auto; overflow-x: hidden; }
+  .list { padding: 4px 0; }
+  .row {
+    display: flex; align-items: center; gap: 8px; padding: 5px 10px;
+    border-bottom: 1px solid var(--sep); cursor: default; position: relative;
+  }
+  .row:hover { background: var(--row-hover); }
+  .row.selected { background: var(--row-sel); }
+  .row.playing .title { color: var(--accent); font-weight: 600; }
+  .row.dragover-top { box-shadow: inset 0 2px 0 var(--accent); }
+  .row.dragover-bottom { box-shadow: inset 0 -2px 0 var(--accent); }
+
+  .status { flex: 0 0 16px; width: 16px; text-align: center; color: var(--accent); font-size: 11px; }
+  .idx { flex: 0 0 auto; min-width: 18px; text-align: right; color: var(--fg-tertiary);
+         font-variant-numeric: tabular-nums; font-size: 11px; }
+  .meta { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; overflow: hidden; }
+  .title { font-size: 13px; font-weight: 500; display: block; max-width: 100%;
+           overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .sub { font-size: 11px; color: var(--fg-secondary); display: block; max-width: 100%;
+         overflow: hidden; text-overflow: ellipsis; white-space: nowrap; margin-bottom: 1px; }
+  .dur { flex: 0 0 auto; color: var(--fg-secondary); font-variant-numeric: tabular-nums;
+         font-size: 11px; padding-left: 6px; white-space: nowrap; }
+
+  /* Progress bar */
+  .progress-row { flex: 0 0 auto; display: flex; align-items: center; gap: 8px; padding: 7px 14px 0; background: var(--toolbar-bg); }
+  .ptime { font-size: 10px; color: var(--fg-secondary); font-variant-numeric: tabular-nums; min-width: 34px; text-align: center; }
+  .pbar { position: relative; flex: 1 1 auto; height: 5px; border-radius: 3px; background: var(--field-bg); cursor: pointer; }
+  .pfill { position: absolute; left: 0; top: 0; bottom: 0; width: 0%; background: var(--accent); border-radius: 3px; transition: width 0.5s linear; }
+  .pbar.scrubbing .pfill { transition: none; }
+  .pfill::after {
+    content: ""; position: absolute; right: -5px; top: 50%; transform: translateY(-50%);
+    width: 11px; height: 11px; border-radius: 50%; background: var(--accent);
+    box-shadow: 0 0 2px rgba(0,0,0,0.3); opacity: 0; transition: opacity 0.15s;
+  }
+  .pbar:hover .pfill::after, .pbar.scrubbing .pfill::after { opacity: 1; }
+
+  /* Transport controls */
+  .transport {
+    flex: 0 0 auto; display: flex; align-items: center; justify-content: space-between;
+    padding: 7px 14px; gap: 8px; border-top: 1px solid var(--sep); background: var(--toolbar-bg);
+    backdrop-filter: blur(20px);
+  }
+  .tgroup { display: flex; align-items: center; gap: 12px; }
+  .tbtn {
+    border: 0; background: transparent; color: var(--fg); cursor: pointer;
+    font-size: 18px; line-height: 1; padding: 3px 5px; border-radius: 6px; opacity: 0.85;
+    -webkit-user-select: none; user-select: none;
+  }
+  .tbtn:hover { opacity: 1; background: var(--row-hover); }
+  .tbtn:active { transform: translateY(0.5px); }
+  .tbtn.play { font-size: 23px; }
+  .tbtn.side { font-size: 15px; opacity: 0.45; }
+  .tbtn.side.active { opacity: 1; color: var(--accent); }
+
+  /* Empty & footer */
+  .empty-state { color: var(--fg-secondary); text-align: center; padding: 40px 20px; font-size: 13px; }
+  .footer {
+    flex: 0 0 auto; padding: 5px 10px; font-size: 11px; color: var(--fg-secondary);
+    border-top: 1px solid var(--sep); display: flex; align-items: center; gap: 8px;
+    background: var(--toolbar-bg);
+  }
+  .footer .scan { display: none; align-items: center; gap: 5px; }
+  .footer .scan.on { display: inline-flex; }
+  .spin {
+    width: 10px; height: 10px; border: 1.5px solid var(--fg-tertiary);
+    border-top-color: var(--accent); border-radius: 50%; animation: spin 0.7s linear infinite;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  /* Context menu */
+  #ctx {
+    position: fixed; background: var(--menu-bg); backdrop-filter: blur(20px);
+    border: 1px solid var(--sep); border-radius: 9px; padding: 5px; min-width: 170px;
+    box-shadow: 0 8px 26px var(--menu-shadow); z-index: 100; display: none;
+  }
+  #ctx .mi { padding: 6px 10px; border-radius: 6px; cursor: pointer; font-size: 12.5px; }
+  #ctx .mi:hover { background: var(--accent); color: #fff; }
+  #ctx .sep { height: 1px; background: var(--sep); margin: 5px 4px; }
+</style>
+</head>
+<body>
+  <div class="toolbar">
+    <div class="toolbar-row">
+      <div class="search">
+        <svg width="13" height="13" viewBox="0 0 16 16"><path d="M11 11l3 3M7 12A5 5 0 1 0 7 2a5 5 0 0 0 0 10z" fill="none" stroke="currentColor" stroke-width="1.4"/></svg>
+        <input id="search" type="search" placeholder="Search title, artist, album…" autocomplete="off">
+      </div>
+      <select id="sort" class="sort" title="Sort by">
+        <option value="order">Playlist order</option>
+        <option value="title">Title</option>
+        <option value="artist">Artist</option>
+        <option value="album">Album</option>
+        <option value="duration">Duration</option>
+      </select>
+      <button id="sortdir" class="btn dir" title="Toggle sort direction">↑</button>
+    </div>
+    <div class="toolbar-row">
+      <button id="add" class="btn" title="Add media files">＋ Add</button>
+      <div class="dropdown">
+        <button id="loadBtn" class="btn" title="Load a saved playlist">▾ Load</button>
+        <div id="loadMenu" class="menu"></div>
+      </div>
+      <button id="save" class="btn" title="Save current playlist">Save</button>
+      <div class="spacer"></div>
+      <button id="hidemain" class="btn icon" title="Hide the player window (show only the playlist)" style="display:none">🖥</button>
+      <button id="popout" class="btn icon" title="Open in a resizable window">⤢</button>
+      <button id="refresh" class="btn icon" title="Refresh">⟳</button>
+      <button id="clear" class="btn icon" title="Clear playlist">🗑</button>
+    </div>
+  </div>
+
+  <div class="list-wrap" id="listWrap">
+    <div class="list" id="list"></div>
+    <div class="empty-state" id="emptyState" style="display:none">No items in the playlist.<br>Play something or press “＋ Add”.</div>
+  </div>
+
+  <div class="progress-row">
+    <span class="ptime" id="pCur">0:00</span>
+    <div class="pbar" id="pbar"><div class="pfill" id="pfill"></div></div>
+    <span class="ptime" id="pDur">0:00</span>
+  </div>
+
+  <div class="transport">
+    <button id="tShuffle" class="tbtn side" title="Shuffle">🔀</button>
+    <div class="tgroup">
+      <button id="tPrev" class="tbtn" title="Previous track">⏮</button>
+      <button id="tPlay" class="tbtn play" title="Play / Pause">⏵</button>
+      <button id="tNext" class="tbtn" title="Next track">⏭</button>
+    </div>
+    <button id="tRepeat" class="tbtn side" title="Repeat: off">🔁</button>
+  </div>
+
+  <div class="footer">
+    <span id="count">0 items</span>
+    <div class="spacer" style="flex:1"></div>
+    <span class="scan" id="scan"><span class="spin"></span> reading tags…</span>
+  </div>
+
+  <div id="ctx"></div>
+
+<script>
+(function () {
+  "use strict";
+  var iina = window.iina;
+
+  // ---- state ----
+  var items = [];            // [{i, path, title, artist, album, duration, isCurrent, isPlaying, isNetwork}]
+  var byPath = {};           // path -> item (last one wins; used for meta merge)
+  var selection = {};        // real index -> true
+  var lastClicked = -1;
+  var filter = "";
+  var sortKey = "order";
+  var sortDir = 1;
+  var IS_STANDALONE = false;  // set by the "pl:mode" message
+  var hideMainOn = false;     // whether the main player window is hidden
+  var transportState = { paused: true, loop: "off", shuffle: false };
+  var progress = { pos: 0, dur: 0, paused: true };
+  var scrubbing = false;
+
+  var $ = function (id) { return document.getElementById(id); };
+  function send(name, data) { iina.postMessage(name, data || {}); }
+
+  function fmtDur(sec) {
+    sec = Math.round(sec || 0);
+    if (!sec) return "";
+    var h = Math.floor(sec / 3600), m = Math.floor((sec % 3600) / 60), s = sec % 60;
+    var mm = (h && m < 10 ? "0" : "") + m;
+    return (h ? h + ":" : "") + mm + ":" + (s < 10 ? "0" : "") + s;
+  }
+  function esc(t) {
+    return String(t == null ? "" : t).replace(/[&<>"']/g, function (c) {
+      return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c];
+    });
+  }
+
+  // Drag reorder is allowed whenever the list isn't filtered — the displayed order
+  // always matches the real playlist order now.
+  function reorderable() { return filter === ""; }
+
+  // The view only filters; sorting is applied to the REAL playlist by the backend
+  // (so playback order follows it), and items already arrive in playlist order.
+  function computeView() {
+    if (!filter) return items.slice();
+    var f = filter.toLowerCase();
+    return items.filter(function (it) {
+      return (it.title + " " + it.artist + " " + it.album + " " + it.path).toLowerCase().indexOf(f) >= 0;
+    });
+  }
+
+  function render() {
+    var list = $("list");
+    var view = computeView();
+    var canDrag = reorderable();
+    var html = "";
+    for (var k = 0; k < view.length; k++) {
+      var it = view[k];
+      var cls = "row" + (selection[it.i] ? " selected" : "") + (it.isPlaying || it.isCurrent ? " playing" : "");
+      // Line order (top → bottom): artist · album, then the track name.
+      // With no tags we skip the top line so the file name isn't shown twice.
+      var sub = it.isNetwork
+        ? "Network stream"
+        : (it.artist || it.album)
+          ? esc([it.artist, it.album].filter(Boolean).join("  ·  "))
+          : "";
+      var status = (it.isPlaying || it.isCurrent) ? "▶" : "";
+      html += "<div class='" + cls + "' data-i='" + it.i + "' data-path='" + esc(it.path) + "'"
+        + (canDrag ? " draggable='true'" : "") + ">"
+        + "<span class='status'>" + status + "</span>"
+        + "<span class='idx'>" + (it.i + 1) + "</span>"
+        + "<span class='meta'>"
+        + (sub ? "<span class='sub' title='" + sub + "'>" + sub + "</span>" : "")
+        + "<span class='title' title='" + esc(it.title) + "'>" + esc(it.title) + "</span></span>"
+        + "<span class='dur'>" + fmtDur(it.duration) + "</span>"
+        + "</div>";
+    }
+    list.innerHTML = html;
+    $("emptyState").style.display = items.length ? "none" : "block";
+    $("count").textContent = items.length + (items.length === 1 ? " item" : " items")
+      + (filter && view.length !== items.length ? "  (" + view.length + " shown)" : "");
+  }
+
+  function baseNoExt(p) {
+    var s = String(p).replace(/[\/\\]+$/, "");
+    var i = Math.max(s.lastIndexOf("/"), s.lastIndexOf("\\"));
+    var b = i >= 0 ? s.slice(i + 1) : s;
+    var d = b.lastIndexOf(".");
+    return d > 0 ? b.slice(0, d) : b;
+  }
+
+  // ---- selection ----
+  function clearSel() { selection = {}; }
+  function selectedIndexes() { return Object.keys(selection).map(Number).sort(function (a, b) { return a - b; }); }
+
+  // Apply the current selection to the EXISTING DOM rows without rebuilding them.
+  // Rebuilding innerHTML on mousedown would destroy the node between the two clicks
+  // of a double-click, so we only toggle classes here.
+  function applySelection() {
+    var rows = document.querySelectorAll("#list .row");
+    for (var k = 0; k < rows.length; k++) {
+      var idx = parseInt(rows[k].getAttribute("data-i"), 10);
+      rows[k].classList.toggle("selected", !!selection[idx]);
+    }
+  }
+
+  var lastTapTime = 0, lastTapIndex = -1;
+  function onRowMouseDown(e) {
+    if (e.button !== 0) return; // left button only; right-click is handled by contextmenu
+    var row = e.target.closest(".row"); if (!row) return;
+    var i = parseInt(row.getAttribute("data-i"), 10);
+
+    // Manual double-click detection — robust against DOM refreshes and draggable rows.
+    var now = Date.now();
+    if (i === lastTapIndex && (now - lastTapTime) < 450) {
+      lastTapTime = 0; lastTapIndex = -1;
+      send("ui:play", { index: i });
+      return;
+    }
+    lastTapTime = now; lastTapIndex = i;
+
+    if (e.metaKey || e.ctrlKey) {
+      if (selection[i]) delete selection[i]; else selection[i] = true;
+    } else if (e.shiftKey && lastClicked >= 0) {
+      var view = computeView().map(function (x) { return x.i; });
+      var a = view.indexOf(lastClicked), b = view.indexOf(i);
+      if (a >= 0 && b >= 0) {
+        clearSel();
+        for (var j = Math.min(a, b); j <= Math.max(a, b); j++) selection[view[j]] = true;
+      }
+    } else {
+      clearSel(); selection[i] = true;
+    }
+    lastClicked = i;
+    applySelection();
+  }
+
+  // ---- drag reorder ----
+  var dragFrom = -1;
+  function onDragStart(e) {
+    var row = e.target.closest(".row"); if (!row) return;
+    dragFrom = parseInt(row.getAttribute("data-i"), 10);
+    e.dataTransfer.effectAllowed = "move";
+    try { e.dataTransfer.setData("text/plain", String(dragFrom)); } catch (x) {}
+  }
+  function onDragOver(e) {
+    if (dragFrom < 0) return;
+    e.preventDefault();
+    var row = e.target.closest(".row"); if (!row) return;
+    clearDragMarks();
+    var r = row.getBoundingClientRect();
+    row.classList.add((e.clientY - r.top) < r.height / 2 ? "dragover-top" : "dragover-bottom");
+  }
+  function clearDragMarks() {
+    var m = document.querySelectorAll(".dragover-top,.dragover-bottom");
+    for (var i = 0; i < m.length; i++) { m[i].classList.remove("dragover-top"); m[i].classList.remove("dragover-bottom"); }
+  }
+  function onDrop(e) {
+    if (dragFrom < 0) return;
+    e.preventDefault();
+    var row = e.target.closest(".row"); clearDragMarks();
+    if (!row) { dragFrom = -1; return; }
+    var to = parseInt(row.getAttribute("data-i"), 10);
+    var r = row.getBoundingClientRect();
+    var after = (e.clientY - r.top) >= r.height / 2;
+    var target = to + (after ? 1 : 0);
+    if (target > dragFrom) target -= 1;
+    if (target !== dragFrom && target >= 0) send("ui:move", { from: dragFrom, to: target });
+    dragFrom = -1;
+  }
+
+  // ---- context menu ----
+  function showCtx(e) {
+    var row = e.target.closest(".row"); if (!row) return;
+    e.preventDefault();
+    var i = parseInt(row.getAttribute("data-i"), 10);
+    if (!selection[i]) { clearSel(); selection[i] = true; lastClicked = i; applySelection(); }
+    var path = row.getAttribute("data-path");
+    var n = selectedIndexes().length;
+    var ctx = $("ctx");
+    ctx.innerHTML =
+      "<div class='mi' data-act='play'>Play</div>" +
+      "<div class='mi' data-act='reveal'>Reveal in Finder</div>" +
+      "<div class='sep'></div>" +
+      "<div class='mi' data-act='remove'>Remove" + (n > 1 ? " " + n + " items" : "") + "</div>";
+    ctx.style.display = "block";
+    var vw = window.innerWidth, vh = window.innerHeight;
+    var x = Math.min(e.clientX, vw - ctx.offsetWidth - 6);
+    var y = Math.min(e.clientY, vh - ctx.offsetHeight - 6);
+    ctx.style.left = x + "px"; ctx.style.top = y + "px";
+    ctx.onclick = function (ev) {
+      var mi = ev.target.closest(".mi"); if (!mi) return;
+      var act = mi.getAttribute("data-act");
+      if (act === "play") send("ui:play", { index: i });
+      else if (act === "reveal") send("ui:reveal", { path: path });
+      else if (act === "remove") send("ui:remove", { indexes: selectedIndexes() });
+      hideCtx();
+    };
+  }
+  function hideCtx() { $("ctx").style.display = "none"; }
+
+  // ---- saved playlists menu ----
+  var savedNames = [];
+  function renderSavedMenu() {
+    var menu = $("loadMenu");
+    var html = "";
+    if (savedNames.length === 0) {
+      html += "<div class='empty'>No saved playlists</div>";
+    } else {
+      for (var i = 0; i < savedNames.length; i++) {
+        var nm = savedNames[i];
+        html += "<div class='mi' data-name='" + esc(nm) + "'>"
+          + "<span class='name'>" + esc(nm) + "</span>"
+          + "<span class='del' data-del='" + esc(nm) + "' title='Delete'>✕</span></div>";
+      }
+    }
+    html += "<div class='sep'></div><div class='mi' data-import='1'>Import file…</div>";
+    menu.innerHTML = html;
+  }
+  function toggleLoadMenu(open) {
+    var menu = $("loadMenu");
+    if (open == null) open = !menu.classList.contains("open");
+    menu.classList.toggle("open", open);
+  }
+
+  // ---- incoming messages ----
+  iina.onMessage("pl:state", function (data) {
+    items = (data && data.items) || [];
+    byPath = {};
+    var valid = {};
+    items.forEach(function (it) { byPath[it.path] = it; valid[it.i] = true; });
+    Object.keys(selection).forEach(function (k) { if (!valid[k]) delete selection[k]; });
+    render();
+    toggleScan(data && data.scanning);
+  });
+
+  iina.onMessage("pl:meta", function (m) {
+    if (!m) return;
+    var changed = false;
+    items.forEach(function (it) {
+      if (it.path === m.path) {
+        if (m.title) it.title = m.title;
+        it.artist = m.artist || it.artist;
+        it.album = m.album || it.album;
+        if (m.duration) it.duration = m.duration;
+        changed = true;
+      }
+    });
+    if (changed) render();
+  });
+
+  iina.onMessage("pl:saved", function (d) { savedNames = (d && d.names) || []; renderSavedMenu(); });
+  iina.onMessage("pl:scan", function (d) { toggleScan(d && d.active); });
+  iina.onMessage("pl:mode", function (d) {
+    IS_STANDALONE = !!(d && d.standalone);
+    hideMainOn = !!(d && d.hideMain);
+    // The pop-out button is redundant in the window; the "hide player" toggle only makes
+    // sense there (in the sidebar it would hide its own host window).
+    $("popout").style.display = IS_STANDALONE ? "none" : "";
+    var hm = $("hidemain");
+    hm.style.display = IS_STANDALONE ? "" : "none";
+    hm.classList.toggle("active", hideMainOn);
+  });
+
+  iina.onMessage("pl:transport", function (t) { if (t) { transportState = t; renderTransport(); } });
+  iina.onMessage("pl:progress", function (p) { if (p) { progress = p; if (!scrubbing) renderProgress(); } });
+
+  function toggleScan(on) { $("scan").classList.toggle("on", !!on); }
+
+  function fmtTime(sec) {
+    sec = Math.max(0, Math.floor(sec || 0));
+    var h = Math.floor(sec / 3600), m = Math.floor((sec % 3600) / 60), s = sec % 60;
+    var mm = (h && m < 10 ? "0" : "") + m;
+    return (h ? h + ":" : "") + mm + ":" + (s < 10 ? "0" : "") + s;
+  }
+  function setBar(frac, cur) {
+    $("pfill").style.width = (Math.max(0, Math.min(1, frac)) * 100) + "%";
+    $("pCur").textContent = fmtTime(cur);
+  }
+  function renderProgress() {
+    var dur = progress.dur || 0, pos = progress.pos || 0;
+    setBar(dur > 0 ? pos / dur : 0, pos);
+    $("pDur").textContent = fmtTime(dur);
+  }
+
+  function renderTransport() {
+    var t = transportState;
+    var play = $("tPlay");
+    play.textContent = t.paused ? "⏵" : "⏸";
+    play.title = t.paused ? "Play" : "Pause";
+    var rep = $("tRepeat");
+    rep.textContent = t.loop === "one" ? "🔂" : "🔁";
+    rep.classList.toggle("active", t.loop !== "off");
+    rep.title = "Repeat: " + (t.loop === "all" ? "whole playlist" : t.loop === "one" ? "one track" : "off");
+    $("tShuffle").classList.toggle("active", !!t.shuffle);
+  }
+
+  // ---- wire up ----
+  var list = $("list");
+  list.addEventListener("mousedown", onRowMouseDown); // selection + manual double-click → play
+  list.addEventListener("dragstart", onDragStart);
+  list.addEventListener("dragover", onDragOver);
+  list.addEventListener("dragleave", clearDragMarks);
+  list.addEventListener("drop", onDrop);
+  list.addEventListener("contextmenu", showCtx);
+
+  document.addEventListener("mousedown", function (e) {
+    if (!e.target.closest("#ctx")) hideCtx();
+    if (!e.target.closest(".dropdown")) toggleLoadMenu(false);
+  });
+  window.addEventListener("blur", function () { hideCtx(); toggleLoadMenu(false); });
+
+  $("search").addEventListener("input", function (e) { filter = e.target.value || ""; render(); });
+  $("sort").addEventListener("change", function (e) {
+    sortKey = e.target.value;
+    send("ui:sort", { key: sortKey, dir: sortDir }); // physically reorders the playlist
+  });
+  $("sortdir").addEventListener("click", function () {
+    sortDir = -sortDir;
+    $("sortdir").textContent = sortDir === 1 ? "↑" : "↓";
+    send("ui:sort", { key: sortKey, dir: sortDir });
+  });
+
+  $("add").addEventListener("click", function () { send("ui:add"); });
+  $("save").addEventListener("click", function () { send("ui:save"); });
+  $("clear").addEventListener("click", function () { send("ui:clear"); });
+  $("refresh").addEventListener("click", function () { send("ui:refresh"); });
+  $("popout").addEventListener("click", function () { send("ui:popout"); });
+  $("hidemain").addEventListener("click", function () {
+    hideMainOn = !hideMainOn;
+    $("hidemain").classList.toggle("active", hideMainOn);
+    send("ui:hidemain", { hidden: hideMainOn });
+  });
+
+  // Transport controls
+  $("tPrev").addEventListener("click", function () { send("ui:prev-smart"); });
+  $("tNext").addEventListener("click", function () { send("ui:playNext"); });
+  $("tPlay").addEventListener("click", function () {
+    transportState.paused = !transportState.paused; renderTransport(); // optimistic
+    send("ui:playpause");
+  });
+  $("tRepeat").addEventListener("click", function () { send("ui:cycle-repeat"); });
+  $("tShuffle").addEventListener("click", function () { send("ui:toggle-shuffle"); });
+  renderTransport();
+
+  // Progress bar: click / drag to seek
+  var pbar = $("pbar");
+  function fracFromEvent(e) {
+    var r = pbar.getBoundingClientRect();
+    return r.width > 0 ? Math.max(0, Math.min(1, (e.clientX - r.left) / r.width)) : 0;
+  }
+  pbar.addEventListener("mousedown", function (e) {
+    if (!(progress.dur > 0)) return;
+    scrubbing = true; pbar.classList.add("scrubbing");
+    var f = fracFromEvent(e); setBar(f, f * progress.dur);
+    e.preventDefault();
+  });
+  document.addEventListener("mousemove", function (e) {
+    if (!scrubbing) return;
+    var f = fracFromEvent(e); setBar(f, f * progress.dur);
+  });
+  document.addEventListener("mouseup", function (e) {
+    if (!scrubbing) return;
+    scrubbing = false; pbar.classList.remove("scrubbing");
+    var f = fracFromEvent(e), pos = f * (progress.dur || 0);
+    progress.pos = pos; renderProgress();
+    send("ui:seek", { pos: pos });
+  });
+  renderProgress();
+
+  // Report the window's content size so the plugin can restore it next time.
+  var rzTimer = null;
+  window.addEventListener("resize", function () {
+    if (!IS_STANDALONE) return;
+    if (rzTimer) clearTimeout(rzTimer);
+    rzTimer = setTimeout(function () {
+      send("ui:winsize", { w: window.innerWidth, h: window.innerHeight });
+    }, 250);
+  });
+
+  $("loadBtn").addEventListener("click", function () { toggleLoadMenu(); });
+  $("loadMenu").addEventListener("click", function (e) {
+    var del = e.target.closest(".del");
+    if (del) { e.stopPropagation(); send("ui:delete-saved", { name: del.getAttribute("data-del") }); return; }
+    var imp = e.target.closest("[data-import]");
+    if (imp) { send("ui:import"); toggleLoadMenu(false); return; }
+    var mi = e.target.closest(".mi[data-name]");
+    if (mi) { send("ui:load", { name: mi.getAttribute("data-name") }); toggleLoadMenu(false); }
+  });
+
+  document.addEventListener("keydown", function (e) {
+    if (e.target.tagName === "INPUT") {
+      if (e.key === "Escape") { e.target.value = ""; filter = ""; render(); e.target.blur(); }
+      return;
+    }
+    // Transport hotkeys (playlist window only): Z = previous/restart · X = play/pause · C = next
+    if (IS_STANDALONE && !e.metaKey && !e.ctrlKey && !e.altKey) {
+      var kk = e.key.toLowerCase();
+      if (kk === "z") { e.preventDefault(); send("ui:prev-smart"); return; }
+      if (kk === "x") { e.preventDefault(); transportState.paused = !transportState.paused; renderTransport(); send("ui:playpause"); return; }
+      if (kk === "c") { e.preventDefault(); send("ui:playNext"); return; }
+    }
+    if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "f") { e.preventDefault(); $("search").focus(); return; }
+    if (e.key === "Backspace" || e.key === "Delete") {
+      var sel = selectedIndexes(); if (sel.length) { e.preventDefault(); send("ui:remove", { indexes: sel }); }
+    } else if (e.key === "Enter") {
+      var s = selectedIndexes(); if (s.length) send("ui:play", { index: s[0] });
+    } else if (e.key === "a" && (e.metaKey || e.ctrlKey)) {
+      e.preventDefault(); computeView().forEach(function (it) { selection[it.i] = true; }); render();
+    }
+  });
+
+  // ---- go ----
+  renderSavedMenu();
+  send("ui:ready");
+})();
+</script>
+</body>
+</html>

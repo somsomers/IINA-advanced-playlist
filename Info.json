@@ -1,0 +1,24 @@
+{
+  "name": "Advanced Playlist",
+  "identifier": "io.iina.playlist-pro",
+  "version": "1.0.0",
+  "ghVersion": 1,
+  "author": {
+    "name": "somename",
+    "email": "muuberullez@gmail.com"
+  },
+  "description": "A full-featured music playlist: artist / album / title, search, sorting, drag-to-reorder, save/load playlists, and a detachable resizable window.",
+  "entry": "main.js",
+  "sidebarTab": {
+    "name": "Advanced Playlist"
+  },
+  "permissions": [
+    "file-system",
+    "show-osd"
+  ],
+  "preferenceDefaults": {
+    "winW": 620,
+    "winH": 520,
+    "hideMain": false
+  }
+}
