@@ -7,8 +7,9 @@
     "name": "somename",
     "email": "muuberullez@gmail.com"
   },
-  "description": "A full-featured music playlist: artist / album / title, search, sorting, drag-to-reorder, save/load playlists, and a detachable resizable window.",
+  "description": "A full-featured music playlist: artist / album / title, search, sorting, drag-to-reorder, save/load playlists, a detachable resizable window, and configurable playback hotkeys.",
   "entry": "main.js",
+  "preferencesPage": "ui/preferences.html",
   "sidebarTab": {
     "name": "Advanced Playlist"
   },
@@ -19,6 +20,11 @@
   "preferenceDefaults": {
     "winW": 620,
     "winH": 520,
-    "hideMain": false
+    "hideMain": false,
+    "hk_playpause": "x",
+    "hk_prev": "z",
+    "hk_next": "c",
+    "hk_seekBack": "",
+    "hk_seekFwd": ""
   }
 }

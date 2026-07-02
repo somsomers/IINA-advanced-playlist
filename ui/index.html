@@ -257,6 +257,7 @@
   var transportState = { paused: true, loop: "off", shuffle: false };
   var progress = { pos: 0, dur: 0, paused: true };
   var scrubbing = false;
+  var hotkeys = {}; // { playpause, prev, next, seekBack, seekFwd } as mpv key strings
 
   var $ = function (id) { return document.getElementById(id); };
   function send(name, data) { iina.postMessage(name, data || {}); }
@@ -503,6 +504,29 @@
 
   iina.onMessage("pl:transport", function (t) { if (t) { transportState = t; renderTransport(); } });
   iina.onMessage("pl:progress", function (p) { if (p) { progress = p; if (!scrubbing) renderProgress(); } });
+  iina.onMessage("pl:hotkeys", function (h) { hotkeys = h || {}; });
+
+  // Build the same mpv-style key string the preferences recorder stores, so we can match.
+  var HK_SPECIAL = {
+    " ": "SPACE", "ArrowLeft": "LEFT", "ArrowRight": "RIGHT", "ArrowUp": "UP", "ArrowDown": "DOWN",
+    "Enter": "ENTER", "Backspace": "BS", "Tab": "TAB", "Delete": "DEL",
+    "Home": "HOME", "End": "END", "PageUp": "PGUP", "PageDown": "PGDWN"
+  };
+  function eventToMpvKey(e) {
+    var k = e.key;
+    if (k === "Shift" || k === "Control" || k === "Alt" || k === "Meta") return null;
+    var base;
+    if (HK_SPECIAL[k]) base = HK_SPECIAL[k];
+    else if (k.length === 1) base = k;
+    else if (/^F\d{1,2}$/.test(k)) base = k.toUpperCase();
+    else return null;
+    var mods = "";
+    if (e.ctrlKey) mods += "Ctrl+";
+    if (e.altKey) mods += "Alt+";
+    if (e.shiftKey && k.length !== 1) mods += "Shift+";
+    if (e.metaKey) mods += "Meta+";
+    return mods + base;
+  }
 
   function toggleScan(on) { $("scan").classList.toggle("on", !!on); }
 
@@ -632,12 +656,14 @@
       if (e.key === "Escape") { e.target.value = ""; filter = ""; render(); e.target.blur(); }
       return;
     }
-    // Transport hotkeys (playlist window only): Z = previous/restart · X = play/pause · C = next
-    if (IS_STANDALONE && !e.metaKey && !e.ctrlKey && !e.altKey) {
-      var kk = e.key.toLowerCase();
-      if (kk === "z") { e.preventDefault(); send("ui:prev-smart"); return; }
-      if (kk === "x") { e.preventDefault(); transportState.paused = !transportState.paused; renderTransport(); send("ui:playpause"); return; }
-      if (kk === "c") { e.preventDefault(); send("ui:playNext"); return; }
+    // Configurable playback hotkeys (also handled in the main window via iina.input).
+    var mk = eventToMpvKey(e);
+    if (mk) {
+      if (mk === hotkeys.playpause) { e.preventDefault(); transportState.paused = !transportState.paused; renderTransport(); send("ui:playpause"); return; }
+      if (mk === hotkeys.prev) { e.preventDefault(); send("ui:prev-smart"); return; }
+      if (mk === hotkeys.next) { e.preventDefault(); send("ui:playNext"); return; }
+      if (mk === hotkeys.seekBack) { e.preventDefault(); send("ui:seek-rel", { delta: -10 }); return; }
+      if (mk === hotkeys.seekFwd) { e.preventDefault(); send("ui:seek-rel", { delta: 10 }); return; }
     }
     if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "f") { e.preventDefault(); $("search").focus(); return; }
     if (e.key === "Backspace" || e.key === "Delete") {

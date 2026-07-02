@@ -16,6 +16,12 @@ opens it.
 - **Transport bar** — play/pause, previous/next, **repeat** (off → whole
   playlist → one track, via `loop-playlist`/`loop-file`) and **shuffle**
   (`playlist-shuffle` / `playlist-unshuffle`). Reflects state changed elsewhere.
+- **Seek bar** — current / total time; click or drag to seek (`core.seekTo`).
+- **Configurable hotkeys** — set keys for play/pause, previous, next and
+  seek ±10s on the plugin's **Preferences** page. They work inside IINA: in the
+  **main player window** (via `iina.input`) and in the **playlist window/sidebar**.
+  Not system-wide (a plugin can't grab keys while IINA is in the background).
+  Defaults: `X` play/pause, `Z` previous, `C` next.
 - **Search** — live filter across title / artist / album / path.
 - **Sort** — by playlist order, title, artist, album or duration (asc/desc).
 - **Reorder** — drag rows (only in "Playlist order" view) → `playlist.move`.
@@ -82,11 +88,12 @@ To ship it as a normal plugin instead, rename the folder to
 
 ## Files
 
-| File            | Role                                                              |
-|-----------------|------------------------------------------------------------------|
-| `Info.json`     | Manifest: sidebar tab, `file-system` + `show-osd` permissions.   |
-| `main.js`       | Backend (per-window): playlist bridge, tag parser, cache, I/O.   |
-| `ui/index.html` | Self-contained sidebar UI (inline CSS+JS).                       |
+| File                  | Role                                                        |
+|-----------------------|-------------------------------------------------------------|
+| `Info.json`           | Manifest: sidebar tab, preferences page, permissions.       |
+| `main.js`             | Backend (per-window): playlist, tags, cache, hotkeys, I/O.  |
+| `ui/index.html`       | Self-contained playlist UI (inline CSS+JS).                 |
+| `ui/preferences.html` | Hotkey configuration page (key recorder).                   |
 
 The UI is a single self-contained HTML file because the sidebar `WKWebView`
 loads a `file://` URL without read access to sibling files.

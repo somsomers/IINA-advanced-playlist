@@ -7,7 +7,7 @@
 //       2. background tag scanning (ID3v2/ID3v1, MP4, FLAC, Ogg/Opus) for the rest.
 //   * Persist a metadata cache and named playlists into the plugin's @data folder.
 
-const { playlist, mpv, event, sidebar, standaloneWindow, menu, core, file, utils, preferences, console } = iina;
+const { playlist, mpv, event, sidebar, standaloneWindow, menu, core, file, utils, preferences, input, console } = iina;
 
 // Post a message to BOTH surfaces (sidebar tab + standalone window). Posting to a
 // surface whose webview isn't loaded is a harmless no-op.
@@ -493,6 +493,57 @@ function broadcastProgress() {
 }
 
 // ---------------------------------------------------------------------------
+// Configurable playback hotkeys.
+//   * Main player window: registered via iina.input (mpv key strings).
+//   * Plugin window / sidebar: matched in the webview and sent back as commands.
+// Bindings live in the plugin preferences (hk_<action>) and are edited on the
+// plugin's preferences page. System-wide (app-in-background) is not possible
+// from a plugin, so these only fire while an IINA window is focused.
+// ---------------------------------------------------------------------------
+const HK_ACTIONS = {
+  playpause: function () { togglePlayPause(); setTimeout(function () { broadcastTransport(true); }, 40); },
+  prev: function () { smartPrevious(); },
+  next: function () { try { playlist.playNext(); } catch (e) { } },
+  seekBack: function () { try { core.seek(-10, false); } catch (e) { } },
+  seekFwd: function () { try { core.seek(10, false); } catch (e) { } }
+};
+const HK_ACTION_KEYS = ["playpause", "prev", "next", "seekBack", "seekFwd"];
+let appliedHotkeys = [];   // mpv keys currently registered with iina.input
+let lastHotkeySig = "";
+
+function readHotkeys() {
+  const cfg = {};
+  HK_ACTION_KEYS.forEach(function (a) {
+    let v = "";
+    try { v = preferences.get("hk_" + a) || ""; } catch (e) { }
+    cfg[a] = String(v || "");
+  });
+  return cfg;
+}
+function applyHotkeys(cfg) {
+  appliedHotkeys.forEach(function (k) { try { input.onKeyDown(k, null, input.PRIORITY_HIGH); } catch (e) { } });
+  appliedHotkeys = [];
+  HK_ACTION_KEYS.forEach(function (a) {
+    const key = cfg[a];
+    if (!key) return;
+    try {
+      input.onKeyDown(key, function () { HK_ACTIONS[a](); return true; }, input.PRIORITY_HIGH);
+      appliedHotkeys.push(key);
+    } catch (e) { console.log("hotkey register failed (" + a + " = " + key + "): " + e); }
+  });
+}
+function refreshHotkeys(force) {
+  const cfg = readHotkeys();
+  const sig = HK_ACTION_KEYS.map(function (a) { return cfg[a]; }).join("|");
+  if (!force && sig === lastHotkeySig) return;
+  lastHotkeySig = sig;
+  applyHotkeys(cfg);
+  try { preferences.sync(); } catch (e) { }
+  broadcast("pl:hotkeys", cfg);
+}
+function broadcastHotkeys() { if (uiReady) broadcast("pl:hotkeys", readHotkeys()); }
+
+// ---------------------------------------------------------------------------
 // Named playlists (stored as M3U8 inside @data)
 // ---------------------------------------------------------------------------
 function sendSavedList() {
@@ -624,6 +675,7 @@ function registerHandlers(surface, isStandalone) {
     sendSavedList();
     onPlaylistChanged();
     broadcastTransport(true);
+    broadcastHotkeys();
   });
   surface.onMessage("ui:play", function (d) { if (d && typeof d.index === "number") playlist.play(d.index); });
   surface.onMessage("ui:playNext", function () { playlist.playNext(); });
@@ -635,6 +687,9 @@ function registerHandlers(surface, isStandalone) {
       try { core.seekTo(d.pos); } catch (e) { }
       setTimeout(function () { broadcastProgress(); }, 60);
     }
+  });
+  surface.onMessage("ui:seek-rel", function (d) {
+    if (d && typeof d.delta === "number") { try { core.seek(d.delta, false); } catch (e) { } setTimeout(function () { broadcastProgress(); }, 60); }
   });
   surface.onMessage("ui:cycle-repeat", function () { cycleLoop(); broadcastTransport(true); });
   surface.onMessage("ui:toggle-shuffle", function () { toggleShuffle(); broadcastTransport(true); });
@@ -759,6 +814,7 @@ function refreshCurrentMetadata() {
 // Bootstrap
 // ---------------------------------------------------------------------------
 loadCache();
+refreshHotkeys(true); // register playback hotkeys for the main player window
 
 event.on("iina.file-loaded", function () { refreshCurrentMetadata(); scheduleState(); broadcastTransport(true); updateWindowTitle(); });
 event.on("iina.file-started", function () { scheduleState(); broadcastTransport(true); });
@@ -771,6 +827,7 @@ setInterval(function () {
     if (sig !== lastSignature) { lastSignature = sig; onPlaylistChanged(); }
     if (weMinimized && !standaloneWindow.isOpen()) { applyMainHidden(false); } // restore, keep the pref
     broadcastTransport(); // reflect pause/loop changes made elsewhere (e.g. spacebar)
+    refreshHotkeys();     // pick up hotkey edits made on the preferences page
   } catch (e) { }
 }, 1000);
 
