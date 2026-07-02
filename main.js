@@ -64,6 +64,39 @@ function decodeLatin1(b, s, e) {
   for (let i = s; i < e; i++) { const c = b[i]; if (c === 0) break; r += String.fromCharCode(c); }
   return r;
 }
+// Windows-1251 (Cyrillic) high range 0x80..0xBF; 0xC0..0xFF map linearly to U+0410..U+044F.
+const CP1251_HI = [
+  0x0402, 0x0403, 0x201A, 0x0453, 0x201E, 0x2026, 0x2020, 0x2021, 0x20AC, 0x2030, 0x0409, 0x2039, 0x040A, 0x040C, 0x040B, 0x040F,
+  0x0452, 0x2018, 0x2019, 0x201C, 0x201D, 0x2022, 0x2013, 0x2014, 0x0098, 0x2122, 0x0459, 0x203A, 0x045A, 0x045C, 0x045B, 0x045F,
+  0x00A0, 0x040E, 0x045E, 0x0408, 0x00A4, 0x0490, 0x00A6, 0x00A7, 0x0401, 0x00A9, 0x0404, 0x00AB, 0x00AC, 0x00AD, 0x00AE, 0x0407,
+  0x00B0, 0x00B1, 0x0406, 0x0456, 0x0491, 0x00B5, 0x00B6, 0x00B7, 0x0451, 0x2116, 0x0454, 0x00BB, 0x0458, 0x0405, 0x0455, 0x0457
+];
+function decodeCP1251(b, s, e) {
+  let r = "";
+  e = Math.min(e, b.length);
+  for (let i = s; i < e; i++) {
+    const c = b[i];
+    if (c === 0) break;
+    if (c < 0x80) r += String.fromCharCode(c);
+    else if (c < 0xC0) r += String.fromCharCode(CP1251_HI[c - 0x80]);
+    else r += String.fromCharCode(0x0410 + (c - 0xC0));
+  }
+  return r;
+}
+// Legacy ID3 text (ID3v1 and ID3v2 "ISO-8859-1" frames) is very often actually
+// Windows-1251 in Russian files. If the high bytes look Cyrillic, decode as CP1251.
+function decodeLegacy(b, s, e) {
+  e = Math.min(e, b.length);
+  let high = 0, cyr = 0;
+  for (let i = s; i < e; i++) {
+    const c = b[i];
+    if (c === 0) break;
+    if (c >= 0x80) { high++; if (c >= 0xC0 || c === 0xA8 || c === 0xB8) cyr++; }
+  }
+  // Require a couple of Cyrillic-range bytes so a lone accented Latin-1 char
+  // (e.g. "Café") isn't mistaken for Cyrillic.
+  return (high >= 2 && cyr / high >= 0.6) ? decodeCP1251(b, s, e) : decodeLatin1(b, s, e);
+}
 function decodeUTF8(b, s, e) {
   let r = "";
   let i = s;
@@ -126,7 +159,7 @@ function decodeTextFrame(b, s, e) {
   if (enc === 1) return cleanStr(decodeUTF16(b, p, e, null));
   if (enc === 2) return cleanStr(decodeUTF16(b, p, e, true));
   if (enc === 3) return cleanStr(decodeUTF8(b, p, e));
-  return cleanStr(decodeLatin1(b, p, e));
+  return cleanStr(decodeLegacy(b, p, e)); // enc 0 = "ISO-8859-1", but often Windows-1251
 }
 
 function parseID3v2(h, head) {
@@ -177,9 +210,9 @@ function parseID3v1(h) {
   const b = h.read(128);
   if (!b || b.length < 128 || !(b[0] === 0x54 && b[1] === 0x41 && b[2] === 0x47)) return null; // 'TAG'
   return {
-    title: cleanStr(decodeLatin1(b, 3, 33)),
-    artist: cleanStr(decodeLatin1(b, 33, 63)),
-    album: cleanStr(decodeLatin1(b, 63, 93))
+    title: cleanStr(decodeLegacy(b, 3, 33)),
+    artist: cleanStr(decodeLegacy(b, 33, 63)),
+    album: cleanStr(decodeLegacy(b, 63, 93))
   };
 }
 
@@ -321,9 +354,16 @@ function readTags(path) {
 // ---------------------------------------------------------------------------
 // Metadata cache
 // ---------------------------------------------------------------------------
+const CACHE_VERSION = 2; // bump to invalidate stale caches (e.g. the pre-CP1251 mojibake)
 function loadCache() {
-  try { if (file.exists(CACHE_FILE)) metaCache = JSON.parse(file.read(CACHE_FILE)) || {}; }
-  catch (e) { metaCache = {}; }
+  try {
+    if (file.exists(CACHE_FILE)) {
+      const obj = JSON.parse(file.read(CACHE_FILE)) || {};
+      metaCache = obj.__v === CACHE_VERSION ? obj : { __v: CACHE_VERSION }; // drop old cache
+      return;
+    }
+  } catch (e) { }
+  metaCache = { __v: CACHE_VERSION };
 }
 let persistTimer = null;
 function persistCache() {
@@ -763,13 +803,20 @@ function addFolder() {
     .catch(function () { });
 }
 function clearPlaylist() {
-  let n = 0;
-  try { n = playlist.count(); } catch (e) { }
-  if (n <= 0) return;
+  let l;
+  try { l = playlist.list(); } catch (e) { l = []; }
+  if (l.length <= 1) return; // nothing to clear beyond the current track
+  // Keep the currently playing track (removing it stops playback and closes the
+  // player). Use IINA's own playlist.remove — NOT the raw mpv "playlist-clear"
+  // command, which changes mpv but leaves IINA's playlist model out of sync
+  // (the list only collapses later, when switching tracks re-syncs it).
+  let keep = -1;
+  for (let i = 0; i < l.length; i++) { if (l[i].isCurrent || l[i].isPlaying) { keep = i; break; } }
+  if (keep < 0) keep = 0; // keep something so the player stays alive
   const idx = [];
-  for (let i = 0; i < n; i++) idx.push(i);
+  for (let i = 0; i < l.length; i++) if (i !== keep) idx.push(i);
   try { playlist.remove(idx); } catch (e) { }
-  setTimeout(onPlaylistChanged, 100);
+  setTimeout(onPlaylistChanged, 80);
 }
 
 // Physically reorder the mpv playlist so playback order matches `desired`
@@ -960,7 +1007,7 @@ function refreshCurrentMetadata() {
     const entry = metaCache[path] || {};
     let title = norm["title"] || "";
     let artist = norm["artist"] || norm["album_artist"] || norm["albumartist"] || norm["uploader"] || norm["channel"] || "";
-    const album = norm["album"] || "";
+    let album = norm["album"] || "";
 
     // YouTube/ytdl streams usually carry no artist/album tags; the title arrives as
     // media-title, and (when present) the artist channel is often "Name - Topic".
@@ -977,6 +1024,17 @@ function refreshCurrentMetadata() {
       const dash = s.indexOf(" - ");
       if (dash > 0 && !artist) { artist = s.slice(0, dash); if (!title) title = s.slice(dash + 3); }
       else if (!title) { title = s; }
+    }
+
+    // For LOCAL files our byte-level parser decodes Windows-1251 correctly, while
+    // mpv may return mojibake — prefer the parser's result.
+    if (!isNetwork(path)) {
+      const tags = readTags(path);
+      if (tags) {
+        if (tags.title) title = tags.title;
+        if (tags.artist) artist = tags.artist;
+        if (tags.album) album = tags.album;
+      }
     }
 
     if (title) entry.title = cleanStr(String(title));
