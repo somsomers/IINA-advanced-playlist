@@ -196,7 +196,8 @@
       <button id="sortdir" class="btn dir" title="Toggle sort direction">↑</button>
     </div>
     <div class="toolbar-row">
-      <button id="add" class="btn" title="Add media files">＋ Add</button>
+      <button id="add" class="btn" title="Add a media file">＋ Add</button>
+      <button id="addfolder" class="btn icon" title="Add a folder (all media inside, incl. subfolders)">📁</button>
       <button id="addurl" class="btn icon" title="Add a URL (single video or a playlist)">🔗</button>
       <div class="dropdown">
         <button id="loadBtn" class="btn" title="Load a saved playlist">▾ Load</button>
@@ -584,6 +585,7 @@
   });
 
   $("add").addEventListener("click", function () { send("ui:add"); });
+  $("addfolder").addEventListener("click", function () { send("ui:addfolder"); });
   $("addurl").addEventListener("click", function () { send("ui:addurl"); });
   $("save").addEventListener("click", function () { send("ui:save"); });
   $("clear").addEventListener("click", function () { send("ui:clear"); });

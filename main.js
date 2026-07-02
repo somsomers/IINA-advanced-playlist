@@ -735,8 +735,31 @@ function deleteSaved(name) {
 // Playlist mutations
 // ---------------------------------------------------------------------------
 function addFiles() {
-  utils.chooseFile("Add media to the playlist", { allowedFileTypes: MEDIA_EXT })
+  // The plugin API's file picker is single-selection only (no multi-select),
+  // so use "Add folder" to add many files at once.
+  utils.chooseFile("Add a media file", { allowedFileTypes: MEDIA_EXT })
     .then(function (p) { if (p) { playlist.add(p, -1); setTimeout(onPlaylistChanged, 120); } })
+    .catch(function () { });
+}
+function addFolder() {
+  utils.chooseFile("Add a folder", { chooseDir: true })
+    .then(function (folder) {
+      if (!folder) return;
+      let entries;
+      try { entries = file.list(folder, { includeSubDir: true }) || []; } catch (e) { entries = []; }
+      const paths = [];
+      entries.forEach(function (e) {
+        if (e.isDir) return;
+        const ext = (e.filename.split(".").pop() || "").toLowerCase();
+        if (MEDIA_EXT.indexOf(ext) < 0) return;
+        paths.push(folder + e.path); // e.path is relative to the chosen folder (starts with "/")
+      });
+      paths.sort();
+      if (!paths.length) { core.osd("No media files found in the folder"); return; }
+      playlist.add(paths, -1);
+      core.osd("Added " + paths.length + (paths.length === 1 ? " file" : " files"));
+      setTimeout(onPlaylistChanged, 150);
+    })
     .catch(function () { });
 }
 function clearPlaylist() {
@@ -837,6 +860,7 @@ function registerHandlers(surface, isStandalone) {
     }
   });
   surface.onMessage("ui:add", function () { addFiles(); });
+  surface.onMessage("ui:addfolder", function () { addFolder(); });
   surface.onMessage("ui:addurl", function () {
     const url = utils.prompt("Add a URL — a single video or a playlist:");
     if (url) addUrl(url);
