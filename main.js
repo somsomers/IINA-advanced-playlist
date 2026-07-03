@@ -517,9 +517,27 @@ function addUrl(url) {
 // ---------------------------------------------------------------------------
 // State <-> UI
 // ---------------------------------------------------------------------------
+// Read the playlist straight from mpv (the source of truth). IINA's own
+// playlist model (what iina.playlist.list() returns) is NOT refreshed after a
+// reorder — a move doesn't change playlist-count, so IINA never re-reads it —
+// which left the displayed order stale while playback used the real mpv order.
+function getRawPlaylist() {
+  let pl;
+  try { pl = mpv.getNative("playlist"); } catch (e) { pl = null; }
+  if (!pl || !pl.length) return [];
+  return pl.map(function (it) {
+    return {
+      filename: it.filename || "",
+      title: (it.title != null && it.title !== "") ? String(it.title) : null,
+      isCurrent: it.current === true,
+      isPlaying: it.playing === true
+    };
+  });
+}
+
 function buildItems() {
   let raw;
-  try { raw = playlist.list(); } catch (e) { raw = []; }
+  try { raw = getRawPlaylist(); } catch (e) { raw = []; }
   return raw.map(function (it, i) {
     const path = it.filename;
     const c = metaCache[path] || {};
@@ -558,12 +576,12 @@ function sendState() {
 
 function playlistSignature() {
   let l;
-  try { l = playlist.list(); } catch (e) { l = []; }
+  try { l = getRawPlaylist(); } catch (e) { l = []; }
   return l.length + "|" + l.map(function (x) { return (x.isCurrent ? "*" : "") + x.filename; }).join("\n");
 }
 function onPlaylistChanged() {
   let l;
-  try { l = playlist.list(); } catch (e) { l = []; }
+  try { l = getRawPlaylist(); } catch (e) { l = []; }
   enqueueScan(l.map(function (x) { return x.filename; }));
   sendState();
 }
@@ -710,7 +728,7 @@ function savePlaylist() {
   const safe = sanitize(name);
   if (!safe) { core.osd("Invalid playlist name"); return; }
   let l;
-  try { l = playlist.list(); } catch (e) { l = []; }
+  try { l = getRawPlaylist(); } catch (e) { l = []; }
   if (!l.length) { core.osd("Playlist is empty"); return; }
   const lines = ["#EXTM3U"];
   l.forEach(function (it) {
@@ -804,7 +822,7 @@ function addFolder() {
 }
 function clearPlaylist() {
   let l;
-  try { l = playlist.list(); } catch (e) { l = []; }
+  try { l = getRawPlaylist(); } catch (e) { l = []; }
   if (l.length <= 1) return; // nothing to clear beyond the current track
   // Keep the currently playing track (removing it stops playback and closes the
   // player). Use IINA's own playlist.remove — NOT the raw mpv "playlist-clear"
@@ -838,12 +856,28 @@ function reorderPlaylist(desired) {
   try { lastSignature = playlistSignature(); } catch (e) { } // don't let the poll re-fire
 }
 
+// Drag reorder: move item `from` to the insert-before gap `gap` (0..n). Builds the
+// resulting permutation and applies it through the (verified) reorderPlaylist.
+function moveItem(from, gap) {
+  const n = getRawPlaylist().length;
+  if (from < 0 || from >= n || gap < 0 || gap > n) return;
+  const order = [];
+  for (let i = 0; i < n; i++) order.push(i);
+  order.splice(from, 1);
+  order.splice(gap > from ? gap - 1 : gap, 0, from);
+  let changed = false;
+  for (let i = 0; i < n; i++) if (order[i] !== i) { changed = true; break; }
+  if (!changed) return;
+  reorderPlaylist(order);
+  setTimeout(onPlaylistChanged, 60);
+}
+
 // Sort the actual playlist by a metadata key. This is destructive: it changes
 // the real play order (so next/prev/auto-advance follow the sorted order).
 function sortPlaylist(key, dir) {
   if (key === "order") return; // no stored "original" order to restore to
   let l;
-  try { l = playlist.list(); } catch (e) { return; }
+  try { l = getRawPlaylist(); } catch (e) { return; }
   if (l.length < 2) return;
   const rows = l.map(function (it, i) {
     const c = metaCache[it.filename] || {};
@@ -902,9 +936,7 @@ function registerHandlers(surface, isStandalone) {
     if (d && d.indexes && d.indexes.length) { try { playlist.remove(d.indexes); } catch (e) { } setTimeout(onPlaylistChanged, 60); }
   });
   surface.onMessage("ui:move", function (d) {
-    if (d && typeof d.from === "number" && typeof d.to === "number" && d.from !== d.to) {
-      try { playlist.move(d.from, d.to); } catch (e) { } setTimeout(onPlaylistChanged, 60);
-    }
+    if (d && typeof d.from === "number" && typeof d.to === "number") moveItem(d.from, d.to);
   });
   surface.onMessage("ui:add", function () { addFiles(); });
   surface.onMessage("ui:addfolder", function () { addFolder(); });
@@ -963,7 +995,7 @@ function openWindow() {
 // " — <plugin name>" suffix), falling back to "Playlist" when nothing is playing.
 function currentItemLabel() {
   try {
-    const l = playlist.list();
+    const l = getRawPlaylist();
     const cur = l.filter(function (x) { return x.isCurrent; })[0] ||
                 l.filter(function (x) { return x.isPlaying; })[0];
     if (!cur) return null;
@@ -999,7 +1031,7 @@ function refreshCurrentMetadata() {
     const norm = {};
     for (const k in md) norm[String(k).toLowerCase()] = md[k];
     let list;
-    try { list = playlist.list(); } catch (e) { list = []; }
+    try { list = getRawPlaylist(); } catch (e) { list = []; }
     const cur = list.filter(function (x) { return x.isCurrent; })[0] ||
                 list.filter(function (x) { return x.isPlaying; })[0];
     if (!cur) return;
@@ -1065,7 +1097,7 @@ event.on("iina.file-loaded", function () {
   refreshCurrentMetadata(); scheduleState(); broadcastTransport(true); updateWindowTitle();
   // Lazily enrich the currently playing network track (YouTube etc.) via yt-dlp.
   try {
-    const l = playlist.list();
+    const l = getRawPlaylist();
     const cur = l.filter(function (x) { return x.isCurrent; })[0];
     if (cur && isNetwork(cur.filename)) enqueueEnrich([cur.filename], true);
   } catch (e) { }

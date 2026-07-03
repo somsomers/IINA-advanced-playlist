@@ -403,9 +403,8 @@
     var to = parseInt(row.getAttribute("data-i"), 10);
     var r = row.getBoundingClientRect();
     var after = (e.clientY - r.top) >= r.height / 2;
-    var target = to + (after ? 1 : 0);
-    if (target > dragFrom) target -= 1;
-    if (target !== dragFrom && target >= 0) send("ui:move", { from: dragFrom, to: target });
+    var gap = to + (after ? 1 : 0); // insert-before index; backend converts to a move
+    send("ui:move", { from: dragFrom, to: gap });
     dragFrom = -1;
   }
 
