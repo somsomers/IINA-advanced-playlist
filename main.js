@@ -635,14 +635,26 @@ function toggleShuffle() {
   setTimeout(onPlaylistChanged, 60); // the list order changed
 }
 function getTransport() {
-  let paused = false;
+  let paused = false, volume = 100, muted = false;
   try { paused = mpv.getFlag("pause"); } catch (e) { }
-  return { paused: paused, loop: loopMode(), shuffle: shuffleOn };
+  try { const v = core.audio.volume; if (typeof v === "number") volume = Math.round(v); } catch (e) { }
+  try { muted = !!core.audio.muted; } catch (e) { }
+  return { paused: paused, loop: loopMode(), shuffle: shuffleOn, volume: volume, muted: muted };
+}
+function setVolume(v) {
+  try {
+    v = Math.max(0, Math.min(100, Math.round(v)));
+    core.audio.volume = v;
+    if (v > 0 && core.audio.muted) core.audio.muted = false; // nudging volume unmutes
+  } catch (e) { }
+}
+function toggleMute() {
+  try { core.audio.muted = !core.audio.muted; } catch (e) { }
 }
 function broadcastTransport(force) {
   if (!uiReady) return;
   const t = getTransport();
-  const sig = t.paused + "|" + t.loop + "|" + t.shuffle;
+  const sig = t.paused + "|" + t.loop + "|" + t.shuffle + "|" + t.volume + "|" + t.muted;
   if (!force && sig === lastTransportSig) return;
   lastTransportSig = sig;
   broadcast("pl:transport", t);
@@ -932,6 +944,8 @@ function registerHandlers(surface, isStandalone) {
   });
   surface.onMessage("ui:cycle-repeat", function () { cycleLoop(); broadcastTransport(true); });
   surface.onMessage("ui:toggle-shuffle", function () { toggleShuffle(); broadcastTransport(true); });
+  surface.onMessage("ui:volume", function (d) { if (d && typeof d.value === "number") { setVolume(d.value); broadcastTransport(true); } });
+  surface.onMessage("ui:mute", function () { toggleMute(); broadcastTransport(true); });
   surface.onMessage("ui:remove", function (d) {
     if (d && d.indexes && d.indexes.length) { try { playlist.remove(d.indexes); } catch (e) { } setTimeout(onPlaylistChanged, 60); }
   });

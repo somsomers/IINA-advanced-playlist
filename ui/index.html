@@ -152,6 +152,16 @@
   .tbtn.play { font-size: 23px; }
   .tbtn.side { font-size: 15px; opacity: 0.45; }
   .tbtn.side.active { opacity: 1; color: var(--accent); }
+  .tgroup.modes, .tgroup.vol { gap: 6px; }
+  .tgroup.vol { min-width: 108px; justify-content: flex-end; }
+  .volslider {
+    -webkit-appearance: none; appearance: none; width: 78px; height: 4px; border-radius: 2px;
+    background: var(--field-bg); cursor: pointer; outline: none;
+  }
+  .volslider::-webkit-slider-thumb {
+    -webkit-appearance: none; appearance: none; width: 11px; height: 11px; border-radius: 50%;
+    background: var(--accent); box-shadow: 0 0 2px rgba(0,0,0,0.35);
+  }
 
   /* Empty & footer */
   .empty-state { color: var(--fg-secondary); text-align: center; padding: 40px 20px; font-size: 13px; }
@@ -224,13 +234,19 @@
   </div>
 
   <div class="transport">
-    <button id="tShuffle" class="tbtn side" title="Shuffle">🔀</button>
+    <div class="tgroup modes">
+      <button id="tShuffle" class="tbtn side" title="Shuffle">🔀</button>
+      <button id="tRepeat" class="tbtn side" title="Repeat: off">🔁</button>
+    </div>
     <div class="tgroup">
       <button id="tPrev" class="tbtn" title="Previous track">⏮</button>
       <button id="tPlay" class="tbtn play" title="Play / Pause">⏵</button>
       <button id="tNext" class="tbtn" title="Next track">⏭</button>
     </div>
-    <button id="tRepeat" class="tbtn side" title="Repeat: off">🔁</button>
+    <div class="tgroup vol">
+      <button id="tMute" class="tbtn side" title="Mute">🔊</button>
+      <input id="tVol" class="volslider" type="range" min="0" max="100" value="100" title="Volume">
+    </div>
   </div>
 
   <div class="footer">
@@ -555,6 +571,21 @@
     rep.classList.toggle("active", t.loop !== "off");
     rep.title = "Repeat: " + (t.loop === "all" ? "whole playlist" : t.loop === "one" ? "one track" : "off");
     $("tShuffle").classList.toggle("active", !!t.shuffle);
+    renderVolume(t);
+  }
+  function renderVolume(t) {
+    var vol = typeof t.volume === "number" ? t.volume : 100;
+    var muted = !!t.muted;
+    var slider = $("tVol");
+    // Don't fight the user while they're dragging the slider.
+    if (document.activeElement !== slider) slider.value = muted ? 0 : vol;
+    var shown = muted ? 0 : Number(slider.value);
+    slider.style.background = "linear-gradient(to right, var(--accent) 0%, var(--accent) " +
+      shown + "%, var(--field-bg) " + shown + "%)";
+    var mute = $("tMute");
+    mute.textContent = (muted || vol === 0) ? "🔇" : vol < 50 ? "🔉" : "🔊";
+    mute.classList.toggle("active", muted);
+    mute.title = muted ? "Unmute" : "Mute";
   }
 
   // ---- wire up ----
@@ -605,6 +636,13 @@
   });
   $("tRepeat").addEventListener("click", function () { send("ui:cycle-repeat"); });
   $("tShuffle").addEventListener("click", function () { send("ui:toggle-shuffle"); });
+  $("tMute").addEventListener("click", function () { send("ui:mute"); });
+  $("tVol").addEventListener("input", function () {
+    var v = Number($("tVol").value);
+    transportState.volume = v; transportState.muted = false;
+    renderVolume(transportState);              // instant local feedback
+    send("ui:volume", { value: v });
+  });
   renderTransport();
 
   // Progress bar: click / drag to seek
