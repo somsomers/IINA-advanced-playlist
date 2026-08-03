@@ -884,6 +884,46 @@ function moveItem(from, gap) {
   setTimeout(onPlaylistChanged, 60);
 }
 
+// Index of the currently playing/current track in the raw playlist, or -1.
+function currentIndex() {
+  let l;
+  try { l = getRawPlaylist(); } catch (e) { l = []; }
+  for (let i = 0; i < l.length; i++) if (l[i].isCurrent || l[i].isPlaying) return i;
+  return -1;
+}
+
+// "Play next": move an existing item so it sits right after the current track
+// (or to the top when nothing is playing). Playback of the current track is
+// unaffected; only the queue order changes.
+function queueNext(index) {
+  const n = getRawPlaylist().length;
+  if (index < 0 || index >= n) return;
+  const cur = currentIndex();
+  if (index === cur) return;                 // it's the current track — nothing to queue
+  moveItem(index, cur >= 0 ? cur + 1 : 0);   // gap = insert-before slot after the current track
+  core.osd("Playing next");
+}
+
+// "Copy next": insert a duplicate of the item right after the current track,
+// leaving the original in place. Appends (‑1) when the current track is last,
+// since the plugin API rejects an insert index equal to the playlist length.
+function copyNext(index) {
+  let l;
+  try { l = getRawPlaylist(); } catch (e) { l = []; }
+  const n = l.length;
+  if (index < 0 || index >= n) return;
+  const path = l[index].filename;
+  if (!path) return;
+  const cur = currentIndex();
+  let at;
+  if (cur < 0) at = 0;                 // nothing playing → put it at the top
+  else if (cur + 1 < n) at = cur + 1;  // right after the current track
+  else at = -1;                        // current track is last → append
+  try { playlist.add(path, at); } catch (e) { }
+  core.osd("Copied next");
+  setTimeout(onPlaylistChanged, 150);
+}
+
 // Sort the actual playlist by a metadata key. This is destructive: it changes
 // the real play order (so next/prev/auto-advance follow the sorted order).
 function sortPlaylist(key, dir) {
@@ -929,6 +969,8 @@ function registerHandlers(surface, isStandalone) {
     broadcastHotkeys();
   });
   surface.onMessage("ui:play", function (d) { if (d && typeof d.index === "number") playlist.play(d.index); });
+  surface.onMessage("ui:queue-next", function (d) { if (d && typeof d.index === "number") queueNext(d.index); });
+  surface.onMessage("ui:copy-next", function (d) { if (d && typeof d.index === "number") copyNext(d.index); });
   surface.onMessage("ui:playNext", function () { playlist.playNext(); });
   surface.onMessage("ui:playPrev", function () { playlist.playPrevious(); });
   surface.onMessage("ui:playpause", function () { togglePlayPause(); setTimeout(function () { broadcastTransport(true); }, 40); });

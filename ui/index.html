@@ -107,6 +107,7 @@
   }
   .row:hover { background: var(--row-hover); }
   .row.selected { background: var(--row-sel); }
+  .row.cursor { box-shadow: inset 0 0 0 2px var(--accent); }
   .row.playing .title { color: var(--accent); font-weight: 600; }
   .row.dragover-top { box-shadow: inset 0 2px 0 var(--accent); }
   .row.dragover-bottom { box-shadow: inset 0 -2px 0 var(--accent); }
@@ -215,6 +216,7 @@
       </div>
       <button id="save" class="btn" title="Save current playlist">Save</button>
       <div class="spacer"></div>
+      <button id="locate" class="btn icon" title="Scroll to the current track">🎯</button>
       <button id="hidemain" class="btn icon" title="Hide the player window (show only the playlist)" style="display:none">🖥</button>
       <button id="popout" class="btn icon" title="Open in a resizable window">⤢</button>
       <button id="refresh" class="btn icon" title="Refresh">⟳</button>
@@ -267,6 +269,7 @@
   var byPath = {};           // path -> item (last one wins; used for meta merge)
   var selection = {};        // real index -> true
   var lastClicked = -1;
+  var cursor = -1;           // real index of the keyboard-highlighted row (arrow-key navigation)
   var filter = "";
   var sortKey = "order";
   var sortDir = 1;
@@ -314,7 +317,8 @@
     var html = "";
     for (var k = 0; k < view.length; k++) {
       var it = view[k];
-      var cls = "row" + (selection[it.i] ? " selected" : "") + (it.isPlaying || it.isCurrent ? " playing" : "");
+      var cls = "row" + (selection[it.i] ? " selected" : "") + (it.i === cursor ? " cursor" : "")
+        + (it.isPlaying || it.isCurrent ? " playing" : "");
       // Line order (top → bottom): artist · album, then the track name.
       // With no tags we skip the top line so the file name isn't shown twice.
       var sub = (it.artist || it.album)
@@ -360,6 +364,85 @@
     }
   }
 
+  // ---- keyboard cursor (arrow-key navigation over the current view) ----
+  function viewPosOfCursor(view) {
+    if (cursor < 0) return -1;
+    for (var k = 0; k < view.length; k++) if (view[k].i === cursor) return k;
+    return -1;
+  }
+  // The index the Enter/Shift+Enter/Opt+Shift+Enter actions operate on: the
+  // keyboard cursor if set, otherwise the first selected row, otherwise the top row.
+  function activeIndex() {
+    var view = computeView();
+    var pos = viewPosOfCursor(view);
+    if (pos >= 0) return view[pos].i;
+    var sel = selectedIndexes();
+    if (sel.length) return sel[0];
+    return view.length ? view[0].i : -1;
+  }
+  function scrollCursorIntoView() {
+    var row = document.querySelector("#list .row.cursor");
+    if (row && row.scrollIntoView) row.scrollIntoView({ block: "nearest" });
+  }
+  // Move the highlight by `delta` rows within the filtered view; the selection
+  // follows the cursor so a single row stays highlighted for the actions below.
+  function moveCursor(delta) {
+    var view = computeView();
+    if (!view.length) { cursor = -1; return; }
+    var pos = viewPosOfCursor(view);
+    if (pos < 0) pos = delta > 0 ? 0 : view.length - 1;
+    else pos = Math.max(0, Math.min(view.length - 1, pos + delta));
+    cursor = view[pos].i;
+    clearSel(); selection[cursor] = true; lastClicked = cursor;
+    render();
+    scrollCursorIntoView();
+  }
+  // Run one of the three actions on the active row.
+  //   play       → start playing it now
+  //   queue-next → move it to right after the current track
+  //   copy-next  → insert a copy right after the current track (original stays)
+  function activateCursor(mode) {
+    var i = activeIndex();
+    if (i < 0) return;
+    if (mode === "queue-next") send("ui:queue-next", { index: i });
+    else if (mode === "copy-next") send("ui:copy-next", { index: i });
+    else send("ui:play", { index: i });
+  }
+  // Handle the shared navigation keys (Up/Down/Enter). Returns true if consumed.
+  function handleNavKey(e) {
+    if (e.key === "ArrowDown") { e.preventDefault(); moveCursor(1); return true; }
+    if (e.key === "ArrowUp") { e.preventDefault(); moveCursor(-1); return true; }
+    if (e.key === "Enter") {
+      e.preventDefault();
+      if (e.shiftKey && e.altKey) activateCursor("copy-next");
+      else if (e.shiftKey) activateCursor("queue-next");
+      else activateCursor("play");
+      return true;
+    }
+    return false;
+  }
+
+  // Scroll the list to the currently playing track and highlight it. If a search
+  // filter is hiding it, the filter is cleared first so the track is revealed.
+  function scrollToCurrent() {
+    var cur = -1;
+    for (var k = 0; k < items.length; k++) {
+      if (items[k].isPlaying || items[k].isCurrent) { cur = items[k].i; break; }
+    }
+    if (cur < 0) return; // nothing playing
+    if (filter && viewPosOfCursorFor(cur) < 0) { filter = ""; $("search").value = ""; }
+    cursor = cur; clearSel(); selection[cur] = true; lastClicked = cur;
+    render();
+    var row = document.querySelector("#list .row[data-i='" + cur + "']");
+    if (row && row.scrollIntoView) row.scrollIntoView({ block: "center", behavior: "smooth" });
+  }
+  // Is the given real index present in the current filtered view?
+  function viewPosOfCursorFor(i) {
+    var view = computeView();
+    for (var k = 0; k < view.length; k++) if (view[k].i === i) return k;
+    return -1;
+  }
+
   var lastTapTime = 0, lastTapIndex = -1;
   function onRowMouseDown(e) {
     if (e.button !== 0) return; // left button only; right-click is handled by contextmenu
@@ -388,6 +471,7 @@
       clearSel(); selection[i] = true;
     }
     lastClicked = i;
+    cursor = i; // keyboard navigation continues from the row just clicked
     applySelection();
   }
 
@@ -485,6 +569,7 @@
     var valid = {};
     items.forEach(function (it) { byPath[it.path] = it; valid[it.i] = true; });
     Object.keys(selection).forEach(function (k) { if (!valid[k]) delete selection[k]; });
+    if (cursor >= 0 && !valid[cursor]) cursor = -1;
     render();
     toggleScan(data && data.scanning);
   });
@@ -603,7 +688,19 @@
   });
   window.addEventListener("blur", function () { hideCtx(); toggleLoadMenu(false); });
 
-  $("search").addEventListener("input", function (e) { filter = e.target.value || ""; render(); });
+  $("search").addEventListener("input", function (e) {
+    filter = e.target.value || "";
+    // While filtering, pre-highlight the top match so Enter plays it immediately
+    // and Up/Down step through the results without touching the mouse.
+    if (filter) {
+      var view = computeView();
+      cursor = view.length ? view[0].i : -1;
+      clearSel(); if (cursor >= 0) { selection[cursor] = true; lastClicked = cursor; }
+    } else {
+      cursor = -1;
+    }
+    render();
+  });
   $("sort").addEventListener("change", function (e) {
     sortKey = e.target.value;
     send("ui:sort", { key: sortKey, dir: sortDir }); // physically reorders the playlist
@@ -620,6 +717,7 @@
   $("save").addEventListener("click", function () { send("ui:save"); });
   $("clear").addEventListener("click", function () { send("ui:clear"); });
   $("refresh").addEventListener("click", function () { send("ui:refresh"); });
+  $("locate").addEventListener("click", scrollToCurrent);
   $("popout").addEventListener("click", function () { send("ui:popout"); });
   $("hidemain").addEventListener("click", function () {
     hideMainOn = !hideMainOn;
@@ -692,9 +790,14 @@
 
   document.addEventListener("keydown", function (e) {
     if (e.target.tagName === "INPUT") {
-      if (e.key === "Escape") { e.target.value = ""; filter = ""; render(); e.target.blur(); }
+      if (e.key === "Escape") { e.target.value = ""; filter = ""; cursor = -1; render(); e.target.blur(); return; }
+      // Arrow keys pick a result and Enter/Shift+Enter/Opt+Shift+Enter act on it,
+      // all without leaving the search field.
+      if (handleNavKey(e)) return;
       return;
     }
+    // Leave native keyboard behaviour to real form controls (e.g. the sort dropdown).
+    if (e.target.tagName === "SELECT" || e.target.tagName === "TEXTAREA") return;
     // Configurable playback hotkeys (also handled in the main window via iina.input).
     var mk = eventToMpvKey(e);
     if (mk) {
@@ -705,10 +808,10 @@
       if (mk === hotkeys.seekFwd) { e.preventDefault(); send("ui:seek-rel", { delta: 10 }); return; }
     }
     if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "f") { e.preventDefault(); $("search").focus(); return; }
+    // Up/Down move the highlight; Enter plays, Shift+Enter queues next, Opt+Shift+Enter copies next.
+    if (handleNavKey(e)) return;
     if (e.key === "Backspace" || e.key === "Delete") {
       var sel = selectedIndexes(); if (sel.length) { e.preventDefault(); send("ui:remove", { indexes: sel }); }
-    } else if (e.key === "Enter") {
-      var s = selectedIndexes(); if (s.length) send("ui:play", { index: s[0] });
     } else if (e.key === "a" && (e.metaKey || e.ctrlKey)) {
       e.preventDefault(); computeView().forEach(function (it) { selection[it.i] = true; }); render();
     }
