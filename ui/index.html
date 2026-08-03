@@ -107,7 +107,9 @@
   }
   .row:hover { background: var(--row-hover); }
   .row.selected { background: var(--row-sel); }
-  .row.cursor { box-shadow: inset 0 0 0 2px var(--accent); }
+  /* .row.cursor carries no styling on purpose: the keyboard cursor row is always
+     selected too, so the selection background alone marks it. The class stays as a
+     DOM hook for scrolling the cursor row into view. */
   .row.playing .title { color: var(--accent); font-weight: 600; }
   .row.dragover-top { box-shadow: inset 0 2px 0 var(--accent); }
   .row.dragover-bottom { box-shadow: inset 0 -2px 0 var(--accent); }
