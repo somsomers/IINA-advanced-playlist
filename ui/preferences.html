@@ -47,6 +47,7 @@
     -webkit-user-select: text; user-select: text;
   }
   .txt:focus { outline: none; border-color: var(--accent); }
+  .chk { flex: 0 0 auto; width: 15px; height: 15px; accent-color: var(--accent); cursor: pointer; }
 </style>
 </head>
 <body>
@@ -59,6 +60,17 @@
 
   <p class="foot">Press <b>Esc</b> while recording to cancel. Use the ✕ button to unbind.
     For printable keys, Shift is folded into the character (e.g. Shift+X shows as “X”).</p>
+
+  <h2 style="margin-top:22px">Playlists</h2>
+  <p class="hint">With auto-save on, every change to the playlist — adding, removing,
+    reordering or sorting — is written back to the playlist you last <b>saved</b> or
+    <b>loaded</b> in that window. Playlists imported from an external file are not
+    auto-saved. Opening an unrelated file (which replaces the whole playlist) turns
+    auto-saving off for that window instead of overwriting the saved playlist.</p>
+  <div class="row">
+    <span class="label">Auto-save the active playlist when it changes</span>
+    <input id="autosave" class="chk" type="checkbox">
+  </div>
 
   <h2 style="margin-top:22px">Online metadata (yt-dlp)</h2>
   <p class="hint">For YouTube and other sites the plugin asks <b>yt-dlp</b> for
@@ -164,6 +176,11 @@
   }, true);
 
   render();
+
+  // Auto-save toggle
+  var autosave = document.getElementById("autosave");
+  prefs.get("autoSave", function (v) { autosave.checked = !!v; });
+  autosave.addEventListener("change", function () { prefs.set("autoSave", !!autosave.checked); });
 
   // yt-dlp path field
   var ytinput = document.getElementById("ytpath");

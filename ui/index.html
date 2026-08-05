@@ -175,6 +175,11 @@
   }
   .footer .scan { display: none; align-items: center; gap: 5px; }
   .footer .scan.on { display: inline-flex; }
+  .footer .autosave {
+    display: none; align-items: center; gap: 4px; color: var(--accent);
+    min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .footer .autosave.on { display: inline-flex; }
   .spin {
     width: 10px; height: 10px; border: 1.5px solid var(--fg-tertiary);
     border-top-color: var(--accent); border-radius: 50%; animation: spin 0.7s linear infinite;
@@ -256,6 +261,7 @@
   <div class="footer">
     <span id="count">0 items</span>
     <div class="spacer" style="flex:1"></div>
+    <span class="autosave" id="autosave">⟳ <span id="autosaveName"></span></span>
     <span class="scan" id="scan"><span class="spin"></span> reading tags…</span>
   </div>
 
@@ -592,6 +598,15 @@
   });
 
   iina.onMessage("pl:saved", function (d) { savedNames = (d && d.names) || []; renderSavedMenu(); });
+  // Which saved playlist changes are being auto-saved into (empty = auto-save idle).
+  iina.onMessage("pl:autosave", function (d) {
+    var on = !!(d && d.enabled && d.name);
+    $("autosave").classList.toggle("on", on);
+    if (on) {
+      $("autosaveName").textContent = d.name;
+      $("autosave").title = "Changes are auto-saved to the playlist “" + d.name + "”";
+    }
+  });
   iina.onMessage("pl:scan", function (d) { toggleScan(d && d.active); });
   iina.onMessage("pl:mode", function (d) {
     IS_STANDALONE = !!(d && d.standalone);

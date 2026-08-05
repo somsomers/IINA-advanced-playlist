@@ -19,6 +19,7 @@ function broadcast(name, data) {
 const CACHE_FILE = "@data/metadata-cache.json";
 const PLAYLIST_PREFIX = "playlist_";
 const PLAYLIST_EXT = ".m3u8";
+const AUTOSAVE_DELAY = 1200;   // ms of quiet after a change before the playlist is rewritten
 
 const MEDIA_EXT = [
   "mp3", "m4a", "aac", "flac", "wav", "aiff", "aif", "aifc", "ogg", "oga",
@@ -32,6 +33,8 @@ let lastSignature = "";
 let weMinimized = false;    // true while WE have minimized the main window
 let shuffleOn = false;      // whether the playlist is currently shuffled
 let lastTransportSig = "";  // to avoid re-broadcasting unchanged transport state
+let activePlaylistName = null; // saved playlist that auto-save writes back to (this window only)
+let lastSavedContent = "";     // what that file holds, so an unchanged playlist isn't rewritten
 
 // ---------------------------------------------------------------------------
 // Small helpers
@@ -583,6 +586,7 @@ function onPlaylistChanged() {
   let l;
   try { l = getRawPlaylist(); } catch (e) { l = []; }
   enqueueScan(l.map(function (x) { return x.filename; }));
+  scheduleAutoSave();
   sendState();
 }
 
@@ -734,14 +738,14 @@ function sendSavedList() {
   names.sort();
   broadcast("pl:saved", { names: names });
 }
-function savePlaylist() {
-  const name = utils.prompt("Save current playlist as:");
-  if (!name) return;
-  const safe = sanitize(name);
-  if (!safe) { core.osd("Invalid playlist name"); return; }
+function playlistFilePath(safeName) { return "@data/" + PLAYLIST_PREFIX + safeName + PLAYLIST_EXT; }
+function readTextFile(path) { try { return file.read(path) || ""; } catch (e) { return ""; } }
+
+// M3U8 text for the playlist as it stands right now ("" when it is empty).
+function buildCurrentPlaylistContent() {
   let l;
-  try { l = getRawPlaylist(); } catch (e) { l = []; }
-  if (!l.length) { core.osd("Playlist is empty"); return; }
+  try { l = getRawPlaylist(); } catch (e) { return ""; }
+  if (!l.length) return "";
   const lines = ["#EXTM3U"];
   l.forEach(function (it) {
     const c = metaCache[it.filename] || {};
@@ -754,8 +758,19 @@ function savePlaylist() {
     lines.push("#PLAYLISTPRO:" + JSON.stringify({ t: title, a: artist, al: album, d: dur }));
     lines.push(it.filename);
   });
+  return lines.join("\n");
+}
+
+function savePlaylist() {
+  const name = utils.prompt("Save current playlist as:");
+  if (!name) return;
+  const safe = sanitize(name);
+  if (!safe) { core.osd("Invalid playlist name"); return; }
+  const content = buildCurrentPlaylistContent();
+  if (!content) { core.osd("Playlist is empty"); return; }
   try {
-    file.write("@data/" + PLAYLIST_PREFIX + safe + PLAYLIST_EXT, lines.join("\n"));
+    file.write(playlistFilePath(safe), content);
+    setActivePlaylist(safe, content);
     core.osd("Saved playlist: " + safe);
     sendSavedList();
   } catch (e) { core.osd("Save failed"); console.log("save failed: " + e); }
@@ -764,7 +779,7 @@ function savePlaylist() {
 // immediately after loading — mpv's loadlist does not restore #EXTINF titles.
 function restoreMetaFromM3U(path) {
   try {
-    const content = file.read(path);
+    const content = readTextFile(path);
     if (!content) return;
     const lines = content.split(/\r?\n/);
     let pending = null;
@@ -784,21 +799,96 @@ function restoreMetaFromM3U(path) {
   } catch (e) { console.log("restoreMetaFromM3U: " + e); }
 }
 function loadPlaylist(name) {
-  const rel = "@data/" + PLAYLIST_PREFIX + sanitize(name) + PLAYLIST_EXT;
+  const safe = sanitize(name);
+  const rel = playlistFilePath(safe);
   const abs = utils.resolvePath(rel);
   if (!abs || !file.exists(rel)) { core.osd("Playlist not found"); return; }
   restoreMetaFromM3U(rel);
   mpv.command("loadlist", [abs, "replace"]);
-  core.osd("Loaded playlist: " + sanitize(name));
+  setActivePlaylist(safe, readTextFile(rel)); // further edits auto-save back into this playlist
+  core.osd("Loaded playlist: " + safe);
   setTimeout(onPlaylistChanged, 350);
 }
 function importPlaylist() {
   utils.chooseFile("Import a playlist file", { allowedFileTypes: ["m3u", "m3u8", "pls"] })
-    .then(function (p) { if (p) { restoreMetaFromM3U(p); mpv.command("loadlist", [p, "replace"]); setTimeout(onPlaylistChanged, 350); } })
+    .then(function (p) {
+      if (!p) return;
+      restoreMetaFromM3U(p);
+      mpv.command("loadlist", [p, "replace"]);
+      setActivePlaylist(null, ""); // an external file is not one of our saved playlists
+      setTimeout(onPlaylistChanged, 350);
+    })
     .catch(function () { });
 }
 function deleteSaved(name) {
-  try { file.delete("@data/" + PLAYLIST_PREFIX + sanitize(name) + PLAYLIST_EXT); sendSavedList(); } catch (e) { }
+  const safe = sanitize(name);
+  try { file.delete(playlistFilePath(safe)); sendSavedList(); } catch (e) { }
+  if (safe === activePlaylistName) setActivePlaylist(null, "");
+}
+
+// ---------------------------------------------------------------------------
+// Auto-save — mirror every playlist change back into the active saved playlist.
+// Switched on with the "autoSave" preference. The target is whatever playlist
+// was last saved or loaded in THIS window, so another window playing unrelated
+// files can never overwrite it.
+// ---------------------------------------------------------------------------
+let autoSaveTimer = null;
+let lastAutoSaveSig = "";
+
+function autoSaveEnabled() {
+  try { return !!preferences.get("autoSave"); } catch (e) { return false; }
+}
+// Point auto-save at a saved playlist (null = none). `content` is what that file
+// currently holds.
+function setActivePlaylist(safeName, content) {
+  activePlaylistName = safeName || null;
+  lastSavedContent = content || "";
+  broadcastAutoSaveState();
+}
+function scheduleAutoSave() {
+  if (!activePlaylistName || !autoSaveEnabled()) return;
+  if (autoSaveTimer) clearTimeout(autoSaveTimer);
+  autoSaveTimer = setTimeout(runAutoSave, AUTOSAVE_DELAY);
+}
+// A playlist that has no track in common with the saved one is a different
+// playlist — opening an unrelated file replaces mpv's whole list, and that must
+// not be written over the user's saved playlist.
+function sharesTracksWithSaved(items) {
+  if (!lastSavedContent) return true; // nothing to compare against
+  const saved = {};
+  lastSavedContent.split(/\r?\n/).forEach(function (ln) {
+    const s = ln.trim();
+    if (s && s.charAt(0) !== "#") saved[s] = true;
+  });
+  for (let i = 0; i < items.length; i++) if (saved[items[i].filename]) return true;
+  return false;
+}
+function runAutoSave() {
+  autoSaveTimer = null;
+  if (!activePlaylistName || !autoSaveEnabled()) return;
+  let items;
+  try { items = getRawPlaylist(); } catch (e) { return; }
+  if (!items.length) return;                                    // never wipe the saved playlist
+  if (!sharesTracksWithSaved(items)) { setActivePlaylist(null, ""); return; } // unrelated list
+  const content = buildCurrentPlaylistContent();
+  if (!content || content === lastSavedContent) return;         // unchanged — leave the file alone
+  try {
+    file.write(playlistFilePath(activePlaylistName), content);
+    lastSavedContent = content;
+  } catch (e) { console.log("auto-save failed: " + e); }
+}
+function broadcastAutoSaveState() {
+  if (!uiReady) return;
+  broadcast("pl:autosave", { enabled: autoSaveEnabled(), name: activePlaylistName || "" });
+}
+// Pick up a toggle made on the preferences page (polled, like the hotkeys).
+function refreshAutoSaveState() {
+  const sig = (autoSaveEnabled() ? "1" : "0") + "|" + (activePlaylistName || "");
+  if (sig === lastAutoSaveSig) return;
+  lastAutoSaveSig = sig;
+  try { preferences.sync(); } catch (e) { }
+  broadcastAutoSaveState();
+  scheduleAutoSave(); // switching it on stores the changes made while it was off
 }
 
 // ---------------------------------------------------------------------------
@@ -967,6 +1057,7 @@ function registerHandlers(surface, isStandalone) {
     onPlaylistChanged();
     broadcastTransport(true);
     broadcastHotkeys();
+    broadcastAutoSaveState();
   });
   surface.onMessage("ui:play", function (d) { if (d && typeof d.index === "number") playlist.play(d.index); });
   surface.onMessage("ui:queue-next", function (d) { if (d && typeof d.index === "number") queueNext(d.index); });
@@ -1169,6 +1260,7 @@ setInterval(function () {
     if (weMinimized && !standaloneWindow.isOpen()) { applyMainHidden(false); } // restore, keep the pref
     broadcastTransport(); // reflect pause/loop changes made elsewhere (e.g. spacebar)
     refreshHotkeys();     // pick up hotkey edits made on the preferences page
+    refreshAutoSaveState();
     refreshCurrentMetadata(); // catch live stream (ICY) metadata updates
   } catch (e) { }
 }, 1000);

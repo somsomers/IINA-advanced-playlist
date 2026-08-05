@@ -26,6 +26,7 @@
     "hk_next": "c",
     "hk_seekBack": "",
     "hk_seekFwd": "",
-    "ytdlpPath": ""
+    "ytdlpPath": "",
+    "autoSave": false
   }
 }

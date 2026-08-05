@@ -32,6 +32,12 @@ opens it.
 - **Save / Load** — playlists are stored as `.m3u8` in the plugin's private
   `@data` folder; loading uses mpv's `loadlist`. External `.m3u/.m3u8/.pls`
   can be imported via **Load → Import file…**.
+- **Auto-save** (optional, **Preferences → Playlists**) — every change to the
+  playlist (add, remove, reorder, sort) is written back to the playlist that was
+  last **saved** or **loaded** in that window; the footer shows `⟳ <name>` while
+  it is armed. Imported external files are not auto-saved; an empty playlist, or
+  one replaced by an unrelated file, never overwrites the saved one (auto-saving
+  simply disarms).
 - **Reveal in Finder** — from the row context menu.
 - **Detachable window** (`⤢`) — the same playlist in a native window that is
   freely resizable by the mouse; the size is remembered between sessions.
@@ -93,7 +99,7 @@ To ship it as a normal plugin instead, rename the folder to
 | `Info.json`           | Manifest: sidebar tab, preferences page, permissions.       |
 | `main.js`             | Backend (per-window): playlist, tags, cache, hotkeys, I/O.  |
 | `ui/index.html`       | Self-contained playlist UI (inline CSS+JS).                 |
-| `ui/preferences.html` | Hotkey configuration page (key recorder).                   |
+| `ui/preferences.html` | Preferences: hotkeys, auto-save, yt-dlp path.               |
 
 The UI is a single self-contained HTML file because the sidebar `WKWebView`
 loads a `file://` URL without read access to sibling files.
