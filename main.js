@@ -46,7 +46,11 @@ function baseName(p) {
   return i >= 0 ? s.slice(i + 1) : s;
 }
 function stripExt(n) { const i = n.lastIndexOf("."); return i > 0 ? n.slice(0, i) : n; }
-function sanitize(name) { return String(name).replace(/[^\w\-. ]+/g, "_").slice(0, 120); }
+// Playlist names become file names, so only strip what a file name can't hold —
+// \w would also mangle non-Latin names (e.g. Cyrillic) into underscores.
+function sanitize(name) {
+  return String(name).replace(/[\/\\:*?"<>|\x00-\x1f]+/g, "_").replace(/^[.\s]+/, "").trim().slice(0, 120);
+}
 
 // ---------------------------------------------------------------------------
 // Byte decoders (JavaScriptCore has no TextDecoder)
@@ -761,10 +765,11 @@ function buildCurrentPlaylistContent() {
   return lines.join("\n");
 }
 
-function savePlaylist() {
-  const name = utils.prompt("Save current playlist as:");
-  if (!name) return;
-  const safe = sanitize(name);
+// Save under `name`, overwriting a playlist of the same name. The UI pre-fills the
+// active playlist's name, so keeping it updates that playlist and changing it
+// creates a new one ("Save As") — which then becomes the active playlist.
+function savePlaylist(name) {
+  const safe = sanitize(name || "");
   if (!safe) { core.osd("Invalid playlist name"); return; }
   const content = buildCurrentPlaylistContent();
   if (!content) { core.osd("Playlist is empty"); return; }
@@ -843,7 +848,7 @@ function autoSaveEnabled() {
 function setActivePlaylist(safeName, content) {
   activePlaylistName = safeName || null;
   lastSavedContent = content || "";
-  broadcastAutoSaveState();
+  broadcastActivePlaylist();
 }
 function scheduleAutoSave() {
   if (!activePlaylistName || !autoSaveEnabled()) return;
@@ -877,9 +882,11 @@ function runAutoSave() {
     lastSavedContent = content;
   } catch (e) { console.log("auto-save failed: " + e); }
 }
-function broadcastAutoSaveState() {
+// The UI needs the active playlist's name for the Save dialog, and the auto-save
+// flag for the footer indicator.
+function broadcastActivePlaylist() {
   if (!uiReady) return;
-  broadcast("pl:autosave", { enabled: autoSaveEnabled(), name: activePlaylistName || "" });
+  broadcast("pl:active", { name: activePlaylistName || "", autoSave: autoSaveEnabled() });
 }
 // Pick up a toggle made on the preferences page (polled, like the hotkeys).
 function refreshAutoSaveState() {
@@ -887,7 +894,7 @@ function refreshAutoSaveState() {
   if (sig === lastAutoSaveSig) return;
   lastAutoSaveSig = sig;
   try { preferences.sync(); } catch (e) { }
-  broadcastAutoSaveState();
+  broadcastActivePlaylist();
   scheduleAutoSave(); // switching it on stores the changes made while it was off
 }
 
@@ -1057,7 +1064,7 @@ function registerHandlers(surface, isStandalone) {
     onPlaylistChanged();
     broadcastTransport(true);
     broadcastHotkeys();
-    broadcastAutoSaveState();
+    broadcastActivePlaylist();
   });
   surface.onMessage("ui:play", function (d) { if (d && typeof d.index === "number") playlist.play(d.index); });
   surface.onMessage("ui:queue-next", function (d) { if (d && typeof d.index === "number") queueNext(d.index); });
@@ -1093,7 +1100,7 @@ function registerHandlers(surface, isStandalone) {
   });
   surface.onMessage("ui:clear", function () { clearPlaylist(); });
   surface.onMessage("ui:reveal", function (d) { if (d && d.path) { try { file.showInFinder(d.path); } catch (e) { } } });
-  surface.onMessage("ui:save", function () { savePlaylist(); });
+  surface.onMessage("ui:save", function (d) { savePlaylist(d && d.name); });
   surface.onMessage("ui:load", function (d) { if (d && d.name) loadPlaylist(d.name); });
   surface.onMessage("ui:import", function () { importPlaylist(); });
   surface.onMessage("ui:delete-saved", function (d) { if (d && d.name) deleteSaved(d.name); });

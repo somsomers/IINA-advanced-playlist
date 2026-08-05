@@ -186,6 +186,30 @@
   }
   @keyframes spin { to { transform: rotate(360deg); } }
 
+  /* Save dialog */
+  .overlay {
+    position: fixed; top: 0; left: 0; right: 0; bottom: 0; z-index: 200;
+    display: none; align-items: center; justify-content: center; background: rgba(0,0,0,0.28);
+  }
+  .overlay.open { display: flex; }
+  .dialog {
+    width: 300px; max-width: 86%; padding: 14px; display: flex; flex-direction: column; gap: 9px;
+    background: var(--menu-bg); backdrop-filter: blur(20px);
+    border: 1px solid var(--sep); border-radius: 11px; box-shadow: 0 10px 34px var(--menu-shadow);
+  }
+  .dialog .dlg-title { font-size: 13px; font-weight: 600; }
+  .dialog input {
+    border: 1px solid var(--sep); border-radius: 7px; background: var(--field-bg); color: var(--fg);
+    padding: 6px 9px; font-size: 13px; outline: none;
+    -webkit-user-select: text; user-select: text;
+  }
+  .dialog input:focus { border-color: var(--accent); }
+  .dialog .dlg-hint { font-size: 11px; color: var(--fg-secondary); min-height: 14px; }
+  .dialog .dlg-buttons { display: flex; justify-content: flex-end; gap: 7px; }
+  .btn.primary { background: var(--accent); color: #fff; }
+  .btn.primary:hover { background: var(--accent); opacity: 0.9; }
+  .btn[disabled] { opacity: 0.45; pointer-events: none; }
+
   /* Context menu */
   #ctx {
     position: fixed; background: var(--menu-bg); backdrop-filter: blur(20px);
@@ -221,7 +245,7 @@
         <button id="loadBtn" class="btn" title="Load a saved playlist">▾ Load</button>
         <div id="loadMenu" class="menu"></div>
       </div>
-      <button id="save" class="btn" title="Save current playlist">Save</button>
+      <button id="save" class="btn" title="Save the playlist — keep the name to update it, change it to save a copy">Save</button>
       <div class="spacer"></div>
       <button id="locate" class="btn icon" title="Scroll to the current track">🎯</button>
       <button id="hidemain" class="btn icon" title="Hide the player window (show only the playlist)" style="display:none">🖥</button>
@@ -266,6 +290,19 @@
   </div>
 
   <div id="ctx"></div>
+
+  <div class="overlay" id="saveDlg">
+    <div class="dialog">
+      <div class="dlg-title">Save playlist</div>
+      <input id="saveName" type="text" placeholder="Playlist name" spellcheck="false"
+        autocomplete="off" autocapitalize="off">
+      <div class="dlg-hint" id="saveHint"></div>
+      <div class="dlg-buttons">
+        <button class="btn" id="saveCancel">Cancel</button>
+        <button class="btn primary" id="saveOk">Save</button>
+      </div>
+    </div>
+  </div>
 
 <script>
 (function () {
@@ -548,6 +585,7 @@
 
   // ---- saved playlists menu ----
   var savedNames = [];
+  var activeName = "";   // saved playlist the current list belongs to ("" = none yet)
   function renderSavedMenu() {
     var menu = $("loadMenu");
     var html = "";
@@ -568,6 +606,37 @@
     var menu = $("loadMenu");
     if (open == null) open = !menu.classList.contains("open");
     menu.classList.toggle("open", open);
+  }
+
+  // ---- save dialog (doubles as "Save As") ----
+  // The name field starts on the active playlist: keep it to update that playlist,
+  // change it to store the current list under a new name.
+  function saveDialogOpen() { return $("saveDlg").classList.contains("open"); }
+  function openSaveDialog() {
+    var input = $("saveName");
+    input.value = activeName;
+    $("saveDlg").classList.add("open");
+    updateSaveHint();
+    input.focus();
+    input.select();
+  }
+  function closeSaveDialog() { $("saveDlg").classList.remove("open"); }
+  function confirmSaveDialog() {
+    var name = $("saveName").value.trim();
+    if (!name) return;
+    send("ui:save", { name: name });
+    closeSaveDialog();
+  }
+  // Spell out what pressing Save will do, so overwriting is never a surprise.
+  function updateSaveHint() {
+    var name = $("saveName").value.trim();
+    var hint;
+    if (!name) hint = "Enter a playlist name.";
+    else if (name === activeName) hint = "Updates the current playlist.";
+    else if (savedNames.indexOf(name) >= 0) hint = "Overwrites the saved playlist “" + name + "”.";
+    else hint = "Creates a new playlist.";
+    $("saveHint").textContent = hint;
+    $("saveOk").disabled = !name;
   }
 
   // ---- incoming messages ----
@@ -598,13 +667,15 @@
   });
 
   iina.onMessage("pl:saved", function (d) { savedNames = (d && d.names) || []; renderSavedMenu(); });
-  // Which saved playlist changes are being auto-saved into (empty = auto-save idle).
-  iina.onMessage("pl:autosave", function (d) {
-    var on = !!(d && d.enabled && d.name);
+  // The saved playlist the current list belongs to, plus whether changes to it
+  // are being auto-saved (shown in the footer).
+  iina.onMessage("pl:active", function (d) {
+    activeName = (d && d.name) || "";
+    var on = !!(d && d.autoSave && activeName);
     $("autosave").classList.toggle("on", on);
     if (on) {
-      $("autosaveName").textContent = d.name;
-      $("autosave").title = "Changes are auto-saved to the playlist “" + d.name + "”";
+      $("autosaveName").textContent = activeName;
+      $("autosave").title = "Changes are auto-saved to the playlist “" + activeName + "”";
     }
   });
   iina.onMessage("pl:scan", function (d) { toggleScan(d && d.active); });
@@ -731,7 +802,11 @@
   $("add").addEventListener("click", function () { send("ui:add"); });
   $("addfolder").addEventListener("click", function () { send("ui:addfolder"); });
   $("addurl").addEventListener("click", function () { send("ui:addurl"); });
-  $("save").addEventListener("click", function () { send("ui:save"); });
+  $("save").addEventListener("click", openSaveDialog);
+  $("saveName").addEventListener("input", updateSaveHint);
+  $("saveOk").addEventListener("click", confirmSaveDialog);
+  $("saveCancel").addEventListener("click", closeSaveDialog);
+  $("saveDlg").addEventListener("mousedown", function (e) { if (e.target === $("saveDlg")) closeSaveDialog(); });
   $("clear").addEventListener("click", function () { send("ui:clear"); });
   $("refresh").addEventListener("click", function () { send("ui:refresh"); });
   $("locate").addEventListener("click", scrollToCurrent);
@@ -806,6 +881,12 @@
   });
 
   document.addEventListener("keydown", function (e) {
+    // The save dialog owns the keyboard while it is open.
+    if (saveDialogOpen()) {
+      if (e.key === "Escape") { e.preventDefault(); closeSaveDialog(); }
+      else if (e.key === "Enter") { e.preventDefault(); confirmSaveDialog(); }
+      return;
+    }
     if (e.target.tagName === "INPUT") {
       if (e.key === "Escape") { e.target.value = ""; filter = ""; cursor = -1; render(); e.target.blur(); return; }
       // Arrow keys pick a result and Enter/Shift+Enter/Opt+Shift+Enter act on it,

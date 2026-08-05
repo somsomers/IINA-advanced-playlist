@@ -29,9 +29,13 @@ opens it.
 - **Selection** — click, `⌘`-click (toggle), `⇧`-click (range), `⌘A` (all).
 - **Remove** — `⌫`/`Delete` or context menu (multi-select supported).
 - **Add files** — native open panel → appended to the playlist.
-- **Save / Load** — playlists are stored as `.m3u8` in the plugin's private
-  `@data` folder; loading uses mpv's `loadlist`. External `.m3u/.m3u8/.pls`
-  can be imported via **Load → Import file…**.
+- **Save / Save As** — the Save dialog opens with the name of the playlist the
+  current list came from: keep it to update that playlist, type another name to
+  store a copy (which then becomes the active one). The dialog states up front
+  whether it will update, overwrite or create.
+- **Load** — playlists are stored as `.m3u8` in the plugin's private `@data`
+  folder; loading uses mpv's `loadlist`. External `.m3u/.m3u8/.pls` can be
+  imported via **Load → Import file…**.
 - **Auto-save** (optional, **Preferences → Playlists**) — every change to the
   playlist (add, remove, reorder, sort) is written back to the playlist that was
   last **saved** or **loaded** in that window; the footer shows `⟳ <name>` while
