@@ -700,7 +700,7 @@ function broadcastProgress() {
 
 // ---------------------------------------------------------------------------
 // Start paused — a freshly opened playlist selects its first track without
-// playing it ("pausePlaylistOnOpen" preference).
+// playing it ("pausePlaylistOnOpen" and "pauseHoldSeconds" preferences).
 //   * mpv's loadlist starts the first entry right away, and IINA resumes playback
 //     by itself once a track is loaded (unless IINA's own "Pause when media is
 //     opened" setting is on) — a plugin can't switch that off.
@@ -712,9 +712,10 @@ function broadcastProgress() {
 // ---------------------------------------------------------------------------
 const PLAYLIST_FILE_EXTS = ["m3u", "m3u8", "pls"];
 const PAUSE_HOLD_START_TIMEOUT = 2000; // ms for the first track to start after the load
-// ms to keep holding once the track is loaded: for video and tracks with cover art
-// IINA resumes on the first video reconfig, which comes a moment later.
-const PAUSE_HOLD_GRACE = 3000;
+// Allowed range and fallback for the "pauseHoldSeconds" preference.
+const PAUSE_HOLD_MIN_SECONDS = 0.5;
+const PAUSE_HOLD_MAX_SECONDS = 10;
+const PAUSE_HOLD_DEFAULT_SECONDS = 1;
 
 let pauseHoldArmed = false;
 let pauseHoldTrackStarted = false; // the first track of the new playlist has started
@@ -722,6 +723,14 @@ let pauseHoldTimer = null;
 
 function pauseOnOpenEnabled() {
   try { return !!preferences.get("pausePlaylistOnOpen"); } catch (e) { return false; }
+}
+// How long to keep holding once the track is loaded, in ms: for video and tracks with
+// cover art IINA resumes on the first video reconfig, which comes a moment later.
+function pauseHoldGraceMs() {
+  let seconds = NaN;
+  try { seconds = Number(preferences.get("pauseHoldSeconds")); } catch (e) { }
+  if (!(seconds > 0)) seconds = PAUSE_HOLD_DEFAULT_SECONDS;
+  return Math.min(Math.max(seconds, PAUSE_HOLD_MIN_SECONDS), PAUSE_HOLD_MAX_SECONDS) * 1000;
 }
 // Replace the hold's pending timeout; 0 = no timeout.
 function setPauseHoldTimeout(ms) {
@@ -774,7 +783,7 @@ function onFileStartedForPauseHold() {
 function onFileLoadedForPauseHold() {
   if (!pauseHoldArmed) return;
   enforcePauseHold();
-  if (pauseHoldArmed) setPauseHoldTimeout(PAUSE_HOLD_GRACE);
+  if (pauseHoldArmed) setPauseHoldTimeout(pauseHoldGraceMs());
 }
 
 // ---------------------------------------------------------------------------

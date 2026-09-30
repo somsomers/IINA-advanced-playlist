@@ -51,7 +51,9 @@ opens it.
   importing a playlist, or opening an `.m3u/.m3u8/.pls` file in IINA (Finder,
   *File → Open*, at launch), selects the first track without playing it. mpv
   starts the first entry and IINA resumes playback once it is loaded, so the
-  plugin pauses before the load and undoes that one automatic resume.
+  plugin pauses before the load and undoes that one automatic resume. How long
+  it watches for that resume after the track loads is configurable
+  (0.5–10 s, default 1 s) — raise it if video or online tracks still start.
 - **Reveal in Finder** — from the row context menu.
 - **Detachable window** (`⤢`) — the same playlist in a native window that is
   freely resizable by the mouse; the size is remembered between sessions.

@@ -47,6 +47,8 @@
     -webkit-user-select: text; user-select: text;
   }
   .txt:focus { outline: none; border-color: var(--accent); }
+  .txt:disabled { opacity: 0.45; }
+  .txt.num { flex-basis: 72px; text-align: right; }
   .chk { flex: 0 0 auto; width: 15px; height: 15px; accent-color: var(--accent); cursor: pointer; }
 </style>
 </head>
@@ -75,9 +77,16 @@
     <span class="label">Start paused when a playlist is opened</span>
     <input id="pauseonopen" class="chk" type="checkbox">
   </div>
+  <div class="row">
+    <span class="label">Keep it paused after the track loads for (seconds)</span>
+    <input id="pausehold" class="txt num" type="number" min="0.5" max="10" step="0.5">
+  </div>
   <p class="foot">“Start paused” applies to loading or importing a playlist here and to
     opening an .m3u / .m3u8 / .pls file in IINA (Finder, File ▸ Open, or at launch):
-    the first track is selected but not played.</p>
+    the first track is selected but not played. IINA resumes a loaded track by itself,
+    so the plugin watches for that resume and undoes it — for the time set above. Raise
+    it if a video or an online track still starts playing; while it runs, a Play pressed
+    in the player window may be undone once (the plugin's own Play always works).</p>
 
   <h2 style="margin-top:22px">Online metadata (yt-dlp)</h2>
   <p class="hint">For YouTube and other sites the plugin asks <b>yt-dlp</b> for
@@ -189,10 +198,24 @@
   prefs.get("autoSave", function (v) { autosave.checked = !!v; });
   autosave.addEventListener("change", function () { prefs.set("autoSave", !!autosave.checked); });
 
-  // Start-paused toggle
+  // Start-paused toggle and how long the plugin keeps the track paused
   var pauseOnOpen = document.getElementById("pauseonopen");
-  prefs.get("pausePlaylistOnOpen", function (v) { pauseOnOpen.checked = !!v; });
-  pauseOnOpen.addEventListener("change", function () { prefs.set("pausePlaylistOnOpen", !!pauseOnOpen.checked); });
+  var pauseHold = document.getElementById("pausehold");
+  function syncPauseHoldEnabled() { pauseHold.disabled = !pauseOnOpen.checked; }
+  prefs.get("pausePlaylistOnOpen", function (v) { pauseOnOpen.checked = !!v; syncPauseHoldEnabled(); });
+  pauseOnOpen.addEventListener("change", function () {
+    prefs.set("pausePlaylistOnOpen", !!pauseOnOpen.checked);
+    syncPauseHoldEnabled();
+  });
+  function showStoredPauseHold() { prefs.get("pauseHoldSeconds", function (v) { pauseHold.value = v; }); }
+  showStoredPauseHold();
+  pauseHold.addEventListener("change", function () {
+    var seconds = parseFloat(pauseHold.value);
+    if (isNaN(seconds)) { showStoredPauseHold(); return; } // revert unparsable input
+    seconds = Math.min(Math.max(seconds, Number(pauseHold.min)), Number(pauseHold.max));
+    pauseHold.value = seconds;
+    prefs.set("pauseHoldSeconds", seconds);
+  });
 
   // yt-dlp path field
   var ytinput = document.getElementById("ytpath");
