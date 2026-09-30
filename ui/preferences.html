@@ -71,6 +71,13 @@
     <span class="label">Auto-save the active playlist when it changes</span>
     <input id="autosave" class="chk" type="checkbox">
   </div>
+  <div class="row">
+    <span class="label">Start paused when a playlist is opened</span>
+    <input id="pauseonopen" class="chk" type="checkbox">
+  </div>
+  <p class="foot">“Start paused” applies to loading or importing a playlist here and to
+    opening an .m3u / .m3u8 / .pls file in IINA (Finder, File ▸ Open, or at launch):
+    the first track is selected but not played.</p>
 
   <h2 style="margin-top:22px">Online metadata (yt-dlp)</h2>
   <p class="hint">For YouTube and other sites the plugin asks <b>yt-dlp</b> for
@@ -181,6 +188,11 @@
   var autosave = document.getElementById("autosave");
   prefs.get("autoSave", function (v) { autosave.checked = !!v; });
   autosave.addEventListener("change", function () { prefs.set("autoSave", !!autosave.checked); });
+
+  // Start-paused toggle
+  var pauseOnOpen = document.getElementById("pauseonopen");
+  prefs.get("pausePlaylistOnOpen", function (v) { pauseOnOpen.checked = !!v; });
+  pauseOnOpen.addEventListener("change", function () { prefs.set("pausePlaylistOnOpen", !!pauseOnOpen.checked); });
 
   // yt-dlp path field
   var ytinput = document.getElementById("ytpath");

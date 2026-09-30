@@ -640,6 +640,7 @@ function cycleLoop() {
   setLoop(order[(order.indexOf(loopMode()) + 1) % order.length]);
 }
 function togglePlayPause() {
+  releasePauseHold(); // an explicit play/pause wins over "start paused"
   try {
     if (mpv.getFlag("pause")) core.resume(); else core.pause();
   } catch (e) { }
@@ -695,6 +696,85 @@ function broadcastProgress() {
   try { dur = mpv.getNumber("duration") || 0; } catch (e) { }
   try { paused = mpv.getFlag("pause"); } catch (e) { }
   broadcast("pl:progress", { pos: pos, dur: dur, paused: paused });
+}
+
+// ---------------------------------------------------------------------------
+// Start paused — a freshly opened playlist selects its first track without
+// playing it ("pausePlaylistOnOpen" preference).
+//   * mpv's loadlist starts the first entry right away, and IINA resumes playback
+//     by itself once a track is loaded (unless IINA's own "Pause when media is
+//     opened" setting is on) — a plugin can't switch that off.
+//   * So the plugin pauses before the load and arms a one-shot "hold" that undoes
+//     IINA's automatic resume of the new playlist's first track.
+//   * The hold ends after that undo, when another track starts (the user moved
+//     on), when play/pause is toggled from the plugin, or on a timeout if IINA
+//     never resumes (or the load failed).
+// ---------------------------------------------------------------------------
+const PLAYLIST_FILE_EXTS = ["m3u", "m3u8", "pls"];
+const PAUSE_HOLD_START_TIMEOUT = 2000; // ms for the first track to start after the load
+// ms to keep holding once the track is loaded: for video and tracks with cover art
+// IINA resumes on the first video reconfig, which comes a moment later.
+const PAUSE_HOLD_GRACE = 3000;
+
+let pauseHoldArmed = false;
+let pauseHoldTrackStarted = false; // the first track of the new playlist has started
+let pauseHoldTimer = null;
+
+function pauseOnOpenEnabled() {
+  try { return !!preferences.get("pausePlaylistOnOpen"); } catch (e) { return false; }
+}
+// Replace the hold's pending timeout; 0 = no timeout.
+function setPauseHoldTimeout(ms) {
+  if (pauseHoldTimer) clearTimeout(pauseHoldTimer);
+  pauseHoldTimer = ms > 0 ? setTimeout(releasePauseHold, ms) : null;
+}
+function armPauseHold() {
+  if (!pauseOnOpenEnabled()) return;
+  pauseHoldArmed = true;
+  pauseHoldTrackStarted = false;
+  setPauseHoldTimeout(PAUSE_HOLD_START_TIMEOUT);
+  try { mpv.set("pause", true); } catch (e) { }
+}
+function releasePauseHold() {
+  pauseHoldArmed = false;
+  pauseHoldTrackStarted = false;
+  setPauseHoldTimeout(0);
+}
+// Undo IINA's automatic resume. IINA resumes at most once per loaded track, so the
+// hold ends here. Reads the live flag: the value IINA passes with mpv.pause.changed
+// may be stale, as it is read asynchronously.
+function enforcePauseHold() {
+  if (!pauseHoldArmed) return;
+  let paused = true;
+  try { paused = mpv.getFlag("pause"); } catch (e) { }
+  if (paused) return;
+  try { mpv.set("pause", true); } catch (e) { }
+  releasePauseHold();
+  broadcastTransport(true);
+}
+// A local .m3u/.m3u8/.pls. Remote .m3u8 URLs are HLS streams, not playlists.
+function isLocalPlaylistFile(url) {
+  const s = String(url || "");
+  if (s.indexOf("file://") !== 0) return false;
+  const ext = s.slice(s.lastIndexOf(".") + 1).toLowerCase();
+  return PLAYLIST_FILE_EXTS.indexOf(ext) >= 0;
+}
+// iina.file-started. When IINA opens a playlist file itself (Finder, File ▸ Open,
+// launching IINA with it), mpv first "starts" the playlist file, then its tracks.
+function onFileStartedForPauseHold() {
+  let url = null;
+  try { url = core.status.url; } catch (e) { }
+  if (isLocalPlaylistFile(url)) { armPauseHold(); return; }
+  if (!pauseHoldArmed) return;
+  if (pauseHoldTrackStarted) { releasePauseHold(); return; } // another track — the user moved on
+  pauseHoldTrackStarted = true;
+  setPauseHoldTimeout(0); // loading (e.g. a YouTube track) may take a while
+}
+// iina.file-loaded. For audio-only tracks IINA has already resumed by now.
+function onFileLoadedForPauseHold() {
+  if (!pauseHoldArmed) return;
+  enforcePauseHold();
+  if (pauseHoldArmed) setPauseHoldTimeout(PAUSE_HOLD_GRACE);
 }
 
 // ---------------------------------------------------------------------------
@@ -830,6 +910,7 @@ function loadPlaylist(name) {
   const abs = utils.resolvePath(rel);
   if (!abs || !file.exists(rel)) { core.osd("Playlist not found"); return; }
   restoreMetaFromM3U(rel);
+  armPauseHold();
   mpv.command("loadlist", [abs, "replace"]);
   setActivePlaylist(safe, readTextFile(rel)); // further edits auto-save back into this playlist
   core.osd("Loaded playlist: " + safe);
@@ -840,6 +921,7 @@ function importPlaylist() {
     .then(function (p) {
       if (!p) return;
       restoreMetaFromM3U(p);
+      armPauseHold();
       mpv.command("loadlist", [p, "replace"]);
       setActivePlaylist(null, ""); // an external file is not one of our saved playlists
       setTimeout(onPlaylistChanged, 350);
@@ -1325,6 +1407,7 @@ loadCache();
 refreshHotkeys(true); // register playback hotkeys for the main player window
 
 event.on("iina.file-loaded", function () {
+  onFileLoadedForPauseHold(); // first, so an unwanted resume is undone as early as possible
   refreshCurrentMetadata(); scheduleState(); broadcastTransport(true); updateWindowTitle();
   // Lazily enrich the currently playing network track (YouTube etc.) via yt-dlp.
   try {
@@ -1333,7 +1416,9 @@ event.on("iina.file-loaded", function () {
     if (cur && isNetwork(cur.filename)) enqueueEnrich([cur.filename], true);
   } catch (e) { }
 });
-event.on("iina.file-started", function () { scheduleState(); broadcastTransport(true); });
+event.on("iina.file-started", function () { onFileStartedForPauseHold(); scheduleState(); broadcastTransport(true); });
+event.on("mpv.pause.changed", function () { enforcePauseHold(); });
+event.on("iina.window-will-close", function () { releasePauseHold(); });
 
 // Keep the UI in sync with playlist changes made elsewhere (native list, drops, etc.),
 // and bring the main window back if the playlist window was closed while it was hidden.

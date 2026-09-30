@@ -27,6 +27,7 @@
     "hk_seekBack": "",
     "hk_seekFwd": "",
     "ytdlpPath": "",
-    "autoSave": false
+    "autoSave": false,
+    "pausePlaylistOnOpen": true
   }
 }

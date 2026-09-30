@@ -47,6 +47,11 @@ opens it.
   it is armed. Imported external files are not auto-saved; an empty playlist, or
   one replaced by an unrelated file, never overwrites the saved one (auto-saving
   simply disarms).
+- **Start paused** (on by default, **Preferences → Playlists**) — loading or
+  importing a playlist, or opening an `.m3u/.m3u8/.pls` file in IINA (Finder,
+  *File → Open*, at launch), selects the first track without playing it. mpv
+  starts the first entry and IINA resumes playback once it is loaded, so the
+  plugin pauses before the load and undoes that one automatic resume.
 - **Reveal in Finder** — from the row context menu.
 - **Detachable window** (`⤢`) — the same playlist in a native window that is
   freely resizable by the mouse; the size is remembered between sessions.
