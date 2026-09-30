@@ -210,6 +210,28 @@
   .btn.primary:hover { background: var(--accent); opacity: 0.9; }
   .btn[disabled] { opacity: 0.45; pointer-events: none; }
 
+  /* YouTube Music search panel — takes the place of the toolbar and the list while open */
+  body.ytm-open .toolbar, body.ytm-open .list-wrap { display: none; }
+  .ytm-panel { flex: 1 1 auto; min-height: 0; display: none; flex-direction: column; }
+  body.ytm-open .ytm-panel { display: flex; }
+  .ytm-head {
+    flex: 0 0 auto; padding: 8px; display: flex; gap: 6px; align-items: center;
+    background: var(--toolbar-bg); border-bottom: 1px solid var(--sep);
+  }
+  .ytm-status {
+    flex: 0 0 auto; padding: 5px 10px; font-size: 11px; color: var(--fg-secondary);
+    display: flex; align-items: center; gap: 6px; border-bottom: 1px solid var(--sep);
+  }
+  .ytm-results { flex: 1 1 auto; overflow-y: auto; overflow-x: hidden; }
+  .ytm-row.cursor { background: var(--row-sel); }
+  .ytm-thumb {
+    flex: 0 0 36px; width: 36px; height: 36px; border-radius: 4px;
+    background: var(--field-bg); object-fit: cover;
+  }
+  .ytm-actions { flex: 0 0 auto; display: flex; gap: 4px; }
+  .ytm-actions .btn { padding: 3px 7px; }
+  .ytm-actions .btn.added { color: var(--accent); }
+
   /* Context menu */
   #ctx {
     position: fixed; background: var(--menu-bg); backdrop-filter: blur(20px);
@@ -241,6 +263,7 @@
       <button id="add" class="btn" title="Add a media file">＋ Add</button>
       <button id="addfolder" class="btn icon" title="Add a folder (all media inside, incl. subfolders)">📁</button>
       <button id="addurl" class="btn icon" title="Add a URL (single video or a playlist)">🔗</button>
+      <button id="ytmOpen" class="btn icon" title="Search YouTube Music and add songs">🎵</button>
       <div class="dropdown">
         <button id="loadBtn" class="btn" title="Load a saved playlist">▾ Load</button>
         <div id="loadMenu" class="menu"></div>
@@ -258,6 +281,19 @@
   <div class="list-wrap" id="listWrap">
     <div class="list" id="list"></div>
     <div class="empty-state" id="emptyState" style="display:none">No items in the playlist.<br>Play something or press “＋ Add”.</div>
+  </div>
+
+  <div class="ytm-panel" id="ytmPanel">
+    <div class="ytm-head">
+      <div class="search">
+        <svg width="13" height="13" viewBox="0 0 16 16"><path d="M11 11l3 3M7 12A5 5 0 1 0 7 2a5 5 0 0 0 0 10z" fill="none" stroke="currentColor" stroke-width="1.4"/></svg>
+        <input id="ytmQuery" type="search" placeholder="Search YouTube Music…" autocomplete="off" spellcheck="false">
+      </div>
+      <button id="ytmAddAll" class="btn" title="Add all results to the end of the playlist" disabled>＋ All</button>
+      <button id="ytmClose" class="btn icon" title="Back to the playlist (Esc)">✕</button>
+    </div>
+    <div class="ytm-status" id="ytmStatus"></div>
+    <div class="ytm-results" id="ytmResults"></div>
   </div>
 
   <div class="progress-row">
@@ -639,6 +675,117 @@
     $("saveOk").disabled = !name;
   }
 
+  // ---- YouTube Music search panel ----
+  // The backend searches (ytmusic.js) and replies with "pl:ytm-results"; the panel
+  // stays open after adding, so several songs can be picked in a row.
+  var YTM_HINT = "Type a song, artist or album and press ↩.";
+  var ytmResults = [];      // [{url, title, artist, album, duration, thumbnail}]
+  var ytmCursor = -1;       // index of the highlighted result
+  var ytmLastQuery = "";    // query the shown results belong to ("" = none / failed)
+  var ytmRequestId = 0;     // id of the newest search; replies to older ones are ignored
+  var ytmAdded = {};        // url -> true once added (shown as ✓ on the row)
+
+  function isYtmOpen() { return document.body.classList.contains("ytm-open"); }
+  function openYtm() {
+    hideCtx(); toggleLoadMenu(false);
+    document.body.classList.add("ytm-open");
+    if (!ytmLastQuery && !ytmResults.length) setYtmStatus(YTM_HINT, false);
+    $("ytmQuery").focus();
+    $("ytmQuery").select();
+  }
+  function closeYtm() { document.body.classList.remove("ytm-open"); $("ytmQuery").blur(); }
+
+  function setYtmStatus(text, busy) {
+    $("ytmStatus").innerHTML = (busy ? "<span class='spin'></span>" : "") + "<span>" + esc(text) + "</span>";
+  }
+
+  function startYtmSearch(query) {
+    ytmRequestId++;
+    ytmLastQuery = query;
+    ytmResults = []; ytmCursor = -1;
+    renderYtmResults();
+    setYtmStatus("Searching YouTube Music…", true);
+    send("ui:ytm-search", { query: query, requestId: ytmRequestId });
+  }
+
+  function ytmStatusText(reply) {
+    if (reply.error) return reply.error;
+    if (!ytmResults.length) return "Nothing found.";
+    var text = ytmResults.length + (ytmResults.length === 1 ? " song" : " songs") + " · ↩ add · ⇧↩ play next";
+    return reply.titlesOnly ? text + " · titles only for now (artist fills in after adding)" : text;
+  }
+
+  function ytmRowHtml(track, k) {
+    var sub = esc([track.artist, track.album].filter(Boolean).join("  ·  "));
+    var added = !!ytmAdded[track.url];
+    var thumb = track.thumbnail
+      ? "<img class='ytm-thumb' src='" + esc(track.thumbnail) + "' alt=''>"
+      : "<span class='ytm-thumb'></span>";
+    return "<div class='row ytm-row" + (k === ytmCursor ? " cursor" : "") + "' data-k='" + k + "'>"
+      + thumb
+      + "<span class='meta'>"
+      + (sub ? "<span class='sub' title='" + sub + "'>" + sub + "</span>" : "")
+      + "<span class='title' title='" + esc(track.title) + "'>" + esc(track.title) + "</span></span>"
+      + "<span class='dur'>" + fmtDur(track.duration) + "</span>"
+      + "<span class='ytm-actions'>"
+      + "<button class='btn' data-act='next' title='Play next (⇧↩)'>Next</button>"
+      + "<button class='btn icon" + (added ? " added" : "") + "' data-act='add' title='Add to the end of the playlist (↩)'>"
+      + (added ? "✓" : "＋") + "</button>"
+      + "</span></div>";
+  }
+
+  function renderYtmResults() {
+    var html = "";
+    for (var k = 0; k < ytmResults.length; k++) html += ytmRowHtml(ytmResults[k], k);
+    $("ytmResults").innerHTML = html;
+    $("ytmAddAll").disabled = !ytmResults.length;
+  }
+
+  // Move the highlight by toggling classes only — rebuilding the rows between the
+  // two clicks of a double-click would swallow the dblclick event.
+  function setYtmCursor(k) {
+    ytmCursor = k;
+    var rows = document.querySelectorAll("#ytmResults .ytm-row");
+    for (var j = 0; j < rows.length; j++) rows[j].classList.toggle("cursor", j === k);
+    if (rows[k] && rows[k].scrollIntoView) rows[k].scrollIntoView({ block: "nearest" });
+  }
+  function moveYtmCursor(delta) {
+    if (!ytmResults.length) return;
+    var k = ytmCursor < 0 ? 0 : Math.max(0, Math.min(ytmResults.length - 1, ytmCursor + delta));
+    setYtmCursor(k);
+  }
+
+  function addYtmResults(indexes, playNext) {
+    var tracks = indexes.map(function (k) { return ytmResults[k]; }).filter(Boolean);
+    if (!tracks.length) return;
+    send("ui:ytm-add", { tracks: tracks, playNext: !!playNext });
+    tracks.forEach(function (t) { ytmAdded[t.url] = true; });
+    renderYtmResults();
+  }
+  function addAllYtmResults() {
+    addYtmResults(ytmResults.map(function (t, k) { return k; }), false);
+  }
+
+  // Enter searches when the query was edited; otherwise it adds the highlighted
+  // result (Shift+Enter: play it next).
+  function onYtmEnter(fromQueryField, playNext) {
+    var query = $("ytmQuery").value.trim();
+    if (fromQueryField && query && query !== ytmLastQuery) { startYtmSearch(query); return; }
+    if (ytmCursor >= 0) addYtmResults([ytmCursor], playNext);
+  }
+
+  // Keyboard while the panel is open. Keys it doesn't use still reach the
+  // playback hotkeys, unless the user is typing in the query field.
+  function handleYtmKey(e) {
+    var inQuery = e.target === $("ytmQuery");
+    if (e.key === "Escape") { e.preventDefault(); closeYtm(); }
+    else if (e.key === "ArrowDown") { e.preventDefault(); moveYtmCursor(1); }
+    else if (e.key === "ArrowUp") { e.preventDefault(); moveYtmCursor(-1); }
+    else if (e.key === "Enter") { e.preventDefault(); onYtmEnter(inQuery, e.shiftKey); }
+    else if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "f") { e.preventDefault(); $("ytmQuery").focus(); }
+    else if (!inQuery) handlePlaybackHotkey(e);
+  }
+
   // ---- incoming messages ----
   iina.onMessage("pl:state", function (data) {
     items = (data && data.items) || [];
@@ -693,6 +840,14 @@
   iina.onMessage("pl:transport", function (t) { if (t) { transportState = t; renderTransport(); } });
   iina.onMessage("pl:progress", function (p) { if (p) { progress = p; if (!scrubbing) renderProgress(); } });
   iina.onMessage("pl:hotkeys", function (h) { hotkeys = h || {}; });
+  iina.onMessage("pl:ytm-results", function (reply) {
+    if (!reply || reply.requestId !== ytmRequestId) return; // answer to a replaced query
+    ytmResults = reply.tracks || [];
+    ytmCursor = ytmResults.length ? 0 : -1;
+    if (reply.error) ytmLastQuery = ""; // let Enter retry the same query
+    setYtmStatus(ytmStatusText(reply), false);
+    renderYtmResults();
+  });
 
   // Build the same mpv-style key string the preferences recorder stores, so we can match.
   var HK_SPECIAL = {
@@ -802,6 +957,21 @@
   $("add").addEventListener("click", function () { send("ui:add"); });
   $("addfolder").addEventListener("click", function () { send("ui:addfolder"); });
   $("addurl").addEventListener("click", function () { send("ui:addurl"); });
+  $("ytmOpen").addEventListener("click", openYtm);
+  $("ytmClose").addEventListener("click", closeYtm);
+  $("ytmAddAll").addEventListener("click", addAllYtmResults);
+  $("ytmResults").addEventListener("click", function (e) {
+    var row = e.target.closest(".ytm-row"); if (!row) return;
+    var k = parseInt(row.getAttribute("data-k"), 10);
+    var button = e.target.closest("[data-act]");
+    setYtmCursor(k);
+    if (button) addYtmResults([k], button.getAttribute("data-act") === "next");
+  });
+  $("ytmResults").addEventListener("dblclick", function (e) {
+    var row = e.target.closest(".ytm-row");
+    if (!row || e.target.closest("[data-act]")) return; // the buttons handle their own clicks
+    addYtmResults([parseInt(row.getAttribute("data-k"), 10)], false);
+  });
   $("save").addEventListener("click", openSaveDialog);
   $("saveName").addEventListener("input", updateSaveHint);
   $("saveOk").addEventListener("click", confirmSaveDialog);
@@ -880,6 +1050,21 @@
     if (mi) { send("ui:load", { name: mi.getAttribute("data-name") }); toggleLoadMenu(false); }
   });
 
+  // Configurable playback hotkeys (also handled in the main window via iina.input).
+  // Returns true if the key was one of them.
+  function handlePlaybackHotkey(e) {
+    var mk = eventToMpvKey(e);
+    if (!mk) return false;
+    if (mk === hotkeys.playpause) { transportState.paused = !transportState.paused; renderTransport(); send("ui:playpause"); }
+    else if (mk === hotkeys.prev) send("ui:prev-smart");
+    else if (mk === hotkeys.next) send("ui:playNext");
+    else if (mk === hotkeys.seekBack) send("ui:seek-rel", { delta: -10 });
+    else if (mk === hotkeys.seekFwd) send("ui:seek-rel", { delta: 10 });
+    else return false;
+    e.preventDefault();
+    return true;
+  }
+
   document.addEventListener("keydown", function (e) {
     // The save dialog owns the keyboard while it is open.
     if (saveDialogOpen()) {
@@ -887,6 +1072,8 @@
       else if (e.key === "Enter") { e.preventDefault(); confirmSaveDialog(); }
       return;
     }
+    // So does the YouTube Music panel — the (hidden) playlist must not react.
+    if (isYtmOpen()) { handleYtmKey(e); return; }
     if (e.target.tagName === "INPUT") {
       if (e.key === "Escape") { e.target.value = ""; filter = ""; cursor = -1; render(); e.target.blur(); return; }
       // Arrow keys pick a result and Enter/Shift+Enter/Opt+Shift+Enter act on it,
@@ -896,15 +1083,7 @@
     }
     // Leave native keyboard behaviour to real form controls (e.g. the sort dropdown).
     if (e.target.tagName === "SELECT" || e.target.tagName === "TEXTAREA") return;
-    // Configurable playback hotkeys (also handled in the main window via iina.input).
-    var mk = eventToMpvKey(e);
-    if (mk) {
-      if (mk === hotkeys.playpause) { e.preventDefault(); transportState.paused = !transportState.paused; renderTransport(); send("ui:playpause"); return; }
-      if (mk === hotkeys.prev) { e.preventDefault(); send("ui:prev-smart"); return; }
-      if (mk === hotkeys.next) { e.preventDefault(); send("ui:playNext"); return; }
-      if (mk === hotkeys.seekBack) { e.preventDefault(); send("ui:seek-rel", { delta: -10 }); return; }
-      if (mk === hotkeys.seekFwd) { e.preventDefault(); send("ui:seek-rel", { delta: 10 }); return; }
-    }
+    if (handlePlaybackHotkey(e)) return;
     if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "f") { e.preventDefault(); $("search").focus(); return; }
     // Up/Down move the highlight; Enter plays, Shift+Enter queues next, Opt+Shift+Enter copies next.
     if (handleNavKey(e)) return;

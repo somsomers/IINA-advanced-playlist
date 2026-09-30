@@ -7,7 +7,7 @@
     "name": "somename",
     "email": "muuberullez@gmail.com"
   },
-  "description": "A full-featured music playlist: artist / album / title, search, sorting, drag-to-reorder, save/load playlists, a detachable resizable window, and configurable playback hotkeys.",
+  "description": "A full-featured music playlist: artist / album / title, search, sorting, drag-to-reorder, save/load playlists, YouTube Music search, a detachable resizable window, and configurable playback hotkeys.",
   "entry": "main.js",
   "preferencesPage": "ui/preferences.html",
   "sidebarTab": {

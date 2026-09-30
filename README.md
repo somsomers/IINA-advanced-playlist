@@ -29,6 +29,11 @@ opens it.
 - **Selection** — click, `⌘`-click (toggle), `⇧`-click (range), `⌘A` (all).
 - **Remove** — `⌫`/`Delete` or context menu (multi-select supported).
 - **Add files** — native open panel → appended to the playlist.
+- **YouTube Music search** (`🎵`) — search songs without leaving the playlist;
+  results show cover, artist · album and duration. `＋` / `↩` / double-click
+  appends a song, `Next` / `⇧↩` inserts it right after the current track,
+  `＋ All` appends every result, `Esc` returns to the playlist. See
+  [YouTube Music search](#youtube-music-search) below.
 - **Save / Save As** — the Save dialog opens with the name of the playlist the
   current list came from: keep it to update that playlist, type another name to
   store a copy (which then becomes the active one). The dialog states up front
@@ -69,6 +74,25 @@ opens it.
 - The tag scan reads only the first ~1 KB of each text field, so cover-art is
   never loaded into memory.
 
+## YouTube Music search
+
+- **Source** — YouTube Music's internal (unofficial) search API, called with
+  `/usr/bin/curl`: one request (~0.5 s) returns title, artist, album, duration
+  and cover art. No API key or Google account is needed.
+- **Fallback** — if the API fails (e.g. YouTube changed its format), the search
+  goes through yt-dlp instead. Results then show titles only; artist/album are
+  filled in by the usual yt-dlp enrichment once a song is added.
+- **Playback** — songs are added as `https://music.youtube.com/watch?v=…` URLs and
+  played through IINA's youtube-dl/yt-dlp support, like any pasted URL.
+
+### Known limitations
+
+- The API is unofficial and may change; the client version sent with the request
+  (`CLIENT_VERSION` in `ytmusic.js`) may need a bump some day.
+- Only public search: your YouTube Music library, likes and playlists are not
+  available (no sign-in).
+- Region- or age-restricted songs may fail to play.
+
 ## Install (development)
 
 The plugin system is enabled in this build. Symlink this folder into IINA's
@@ -102,6 +126,7 @@ To ship it as a normal plugin instead, rename the folder to
 |-----------------------|-------------------------------------------------------------|
 | `Info.json`           | Manifest: sidebar tab, preferences page, permissions.       |
 | `main.js`             | Backend (per-window): playlist, tags, cache, hotkeys, I/O.  |
+| `ytmusic.js`          | YouTube Music song search (API + yt-dlp fallback).          |
 | `ui/index.html`       | Self-contained playlist UI (inline CSS+JS).                 |
 | `ui/preferences.html` | Preferences: hotkeys, auto-save, yt-dlp path.               |
 

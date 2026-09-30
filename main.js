@@ -6,14 +6,35 @@
 //       1. authoritative metadata from mpv for the currently playing file;
 //       2. background tag scanning (ID3v2/ID3v1, MP4, FLAC, Ogg/Opus) for the rest.
 //   * Persist a metadata cache and named playlists into the plugin's @data folder.
+//   * Search YouTube Music (ytmusic.js) and add the found songs to the playlist.
 
 const { playlist, mpv, event, sidebar, standaloneWindow, menu, core, file, utils, preferences, input, console } = iina;
+const ytMusic = require("./ytmusic.js");
+
+// IINA hands a message to the webview as JSON.parse(String.raw`<json>`), so a
+// backtick inside any string would end that template literal early (the message is
+// lost) and "${" would be evaluated as code. Titles from YouTube or file tags can
+// contain either, so neutralise them before posting.
+function bridgeSafe(value) {
+  if (typeof value === "string") return value.replace(/`/g, "'").replace(/\$\{/g, "$ {");
+  if (Array.isArray(value)) return value.map(bridgeSafe);
+  if (value && typeof value === "object") {
+    const out = {};
+    for (const key in value) out[key] = bridgeSafe(value[key]);
+    return out;
+  }
+  return value;
+}
+
+function postTo(surface, name, data) {
+  surface.postMessage(name, bridgeSafe(data));
+}
 
 // Post a message to BOTH surfaces (sidebar tab + standalone window). Posting to a
 // surface whose webview isn't loaded is a harmless no-op.
 function broadcast(name, data) {
-  try { sidebar.postMessage(name, data); } catch (e) { }
-  try { standaloneWindow.postMessage(name, data); } catch (e) { }
+  try { postTo(sidebar, name, data); } catch (e) { }
+  try { postTo(standaloneWindow, name, data); } catch (e) { }
 }
 
 const CACHE_FILE = "@data/metadata-cache.json";
@@ -1001,23 +1022,72 @@ function queueNext(index) {
   core.osd("Playing next");
 }
 
+// Insert index for "play next": right after the current track, or the top when
+// nothing is playing. Appends (‑1) when the current track is last, since the
+// plugin API rejects an insert index equal to the playlist length.
+function indexAfterCurrent() {
+  let n;
+  try { n = getRawPlaylist().length; } catch (e) { n = 0; }
+  const next = currentIndex() + 1;     // 0 when nothing is playing
+  return next < n ? next : -1;
+}
+
 // "Copy next": insert a duplicate of the item right after the current track,
-// leaving the original in place. Appends (‑1) when the current track is last,
-// since the plugin API rejects an insert index equal to the playlist length.
+// leaving the original in place.
 function copyNext(index) {
   let l;
   try { l = getRawPlaylist(); } catch (e) { l = []; }
-  const n = l.length;
-  if (index < 0 || index >= n) return;
+  if (index < 0 || index >= l.length) return;
   const path = l[index].filename;
   if (!path) return;
-  const cur = currentIndex();
-  let at;
-  if (cur < 0) at = 0;                 // nothing playing → put it at the top
-  else if (cur + 1 < n) at = cur + 1;  // right after the current track
-  else at = -1;                        // current track is last → append
-  try { playlist.add(path, at); } catch (e) { }
+  try { playlist.add(path, indexAfterCurrent()); } catch (e) { }
   core.osd("Copied next");
+  setTimeout(onPlaylistChanged, 150);
+}
+
+// ---------------------------------------------------------------------------
+// YouTube Music: search (see ytmusic.js) and add the chosen songs.
+// ---------------------------------------------------------------------------
+// Reply only to the surface that asked. `requestId` comes back unchanged so the
+// UI can drop answers to queries the user has already replaced.
+function searchYtMusic(surface, query, requestId) {
+  ytMusic.searchSongs(query, findYtdlp())
+    .then(function (result) {
+      postTo(surface, "pl:ytm-results",
+        { requestId: requestId, tracks: result.tracks, titlesOnly: result.titlesOnly });
+    })
+    .catch(function (e) {
+      console.log("YouTube Music search failed: " + e);
+      postTo(surface, "pl:ytm-results",
+        { requestId: requestId, tracks: [], error: "Search failed — check the internet connection." });
+    });
+}
+
+// Cache what the search already knows, so the new rows show artist/album/duration
+// immediately instead of waiting for a yt-dlp lookup per track.
+function rememberTrackMetadata(track) {
+  const entry = metaCache[track.url] || {};
+  if (track.title) entry.title = track.title;
+  if (track.artist) entry.artist = track.artist;
+  if (track.album) entry.album = track.album;
+  if (track.duration) entry.duration = track.duration;
+  metaCache[track.url] = entry;
+}
+
+function countLabel(n) { return n + (n === 1 ? " track" : " tracks"); }
+
+// Append the tracks, or insert them right after the current one (`playNext`).
+function addYtMusicTracks(tracks, playNext) {
+  const valid = tracks.filter(function (t) { return t && typeof t.url === "string" && t.url; });
+  if (!valid.length) return;
+  valid.forEach(rememberTrackMetadata);
+  persistCache();
+  const urls = valid.map(function (t) { return t.url; });
+  let added = false;
+  try { added = playlist.add(urls, playNext ? indexAfterCurrent() : -1); } catch (e) { }
+  if (added === false) { core.osd("Couldn't add to the playlist"); return; }
+  core.osd(playNext ? countLabel(urls.length) + " will play next" : countLabel(urls.length) + " added");
+  enqueueEnrich(urls); // fills in whatever the search didn't know (e.g. after the yt-dlp fallback)
   setTimeout(onPlaylistChanged, 150);
 }
 
@@ -1097,6 +1167,13 @@ function registerHandlers(surface, isStandalone) {
   surface.onMessage("ui:addurl", function () {
     const url = utils.prompt("Add a URL — a single video or a playlist:");
     if (url) addUrl(url);
+  });
+  surface.onMessage("ui:ytm-search", function (d) {
+    const query = String((d && d.query) || "").trim();
+    if (query) searchYtMusic(surface, query, d.requestId);
+  });
+  surface.onMessage("ui:ytm-add", function (d) {
+    if (d && d.tracks && d.tracks.length) addYtMusicTracks(d.tracks, !!d.playNext);
   });
   surface.onMessage("ui:clear", function () { clearPlaylist(); });
   surface.onMessage("ui:reveal", function (d) { if (d && d.path) { try { file.showInFinder(d.path); } catch (e) { } } });
