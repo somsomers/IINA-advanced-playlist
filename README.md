@@ -47,6 +47,10 @@ opens it.
   it is armed. Imported external files are not auto-saved; an empty playlist, or
   one replaced by an unrelated file, never overwrites the saved one (auto-saving
   simply disarms).
+- **Reopen at launch** (on by default, **Preferences → Playlists**) — the
+  playlist last saved or loaded (in any window) is reopened when IINA is
+  launched on its own. Launching IINA to open a file leaves that file alone;
+  deleting the remembered playlist forgets it.
 - **Start paused** (on by default, **Preferences → Playlists**) — loading or
   importing a playlist, or opening an `.m3u/.m3u8/.pls` file in IINA (Finder,
   *File → Open*, at launch), selects the first track without playing it. mpv

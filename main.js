@@ -941,6 +941,45 @@ function deleteSaved(name) {
   const safe = sanitize(name);
   try { file.delete(playlistFilePath(safe)); sendSavedList(); } catch (e) { }
   if (safe === activePlaylistName) setActivePlaylist(null, "");
+  if (safe === lastPlaylistName()) rememberLastPlaylist("");
+}
+
+// ---------------------------------------------------------------------------
+// Reopen the last playlist at launch ("restoreLastPlaylist" preference).
+// The name of the playlist last saved or loaded in ANY window is kept in the
+// "lastPlaylistName" preference. This entry runs once per player; at launch
+// the first player stays idle unless IINA was started to open a file, so an
+// idle player a moment after the entry ran means "IINA was simply launched".
+// ---------------------------------------------------------------------------
+const RESTORE_CHECK_DELAY = 1000; // ms for a file passed at launch to start opening
+
+function lastPlaylistName() {
+  try { return String(preferences.get("lastPlaylistName") || ""); } catch (e) { return ""; }
+}
+function rememberLastPlaylist(safeName) {
+  if (safeName === lastPlaylistName()) return;
+  try { preferences.set("lastPlaylistName", safeName); preferences.sync(); } catch (e) { }
+}
+function restoreLastPlaylistEnabled() {
+  try { return !!preferences.get("restoreLastPlaylist"); } catch (e) { return false; }
+}
+function playerIsIdle() {
+  try { return !!core.status.idle; } catch (e) { return false; }
+}
+// Opened through IINA (core.open), not mpv's loadlist: IINA ignores tracks that
+// mpv starts in an idle player, and only its own open path shows the window.
+// Opening a local .m3u8 this way also arms the start-paused hold by itself.
+function restoreLastPlaylist() {
+  if (!restoreLastPlaylistEnabled() || !playerIsIdle()) return;
+  const safe = lastPlaylistName();
+  if (!safe) return;
+  const rel = playlistFilePath(safe);
+  const abs = utils.resolvePath(rel);
+  if (!abs || !file.exists(rel)) return;
+  restoreMetaFromM3U(rel);
+  core.open(abs);
+  setActivePlaylist(safe, readTextFile(rel));
+  setTimeout(onPlaylistChanged, 350);
 }
 
 // ---------------------------------------------------------------------------
@@ -960,6 +999,7 @@ function autoSaveEnabled() {
 function setActivePlaylist(safeName, content) {
   activePlaylistName = safeName || null;
   lastSavedContent = content || "";
+  if (activePlaylistName) rememberLastPlaylist(activePlaylistName);
   broadcastActivePlaylist();
 }
 function scheduleAutoSave() {
@@ -1422,6 +1462,7 @@ function refreshCurrentMetadata() {
 // ---------------------------------------------------------------------------
 loadCache();
 refreshHotkeys(true); // register playback hotkeys for the main player window
+setTimeout(restoreLastPlaylist, RESTORE_CHECK_DELAY);
 
 event.on("iina.file-loaded", function () {
   onFileLoadedForPauseHold(); // first, so an unwanted resume is undone as early as possible

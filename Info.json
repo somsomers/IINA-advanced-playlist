@@ -28,6 +28,8 @@
     "hk_seekFwd": "",
     "ytdlpPath": "",
     "autoSave": false,
+    "restoreLastPlaylist": true,
+    "lastPlaylistName": "",
     "pausePlaylistOnOpen": true,
     "pauseHoldSeconds": 1,
     "ytmSortByPlays": false

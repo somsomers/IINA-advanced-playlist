@@ -74,6 +74,10 @@
     <input id="autosave" class="chk" type="checkbox">
   </div>
   <div class="row">
+    <span class="label">Reopen the last playlist when IINA starts</span>
+    <input id="restorelast" class="chk" type="checkbox">
+  </div>
+  <div class="row">
     <span class="label">Start paused when a playlist is opened</span>
     <input id="pauseonopen" class="chk" type="checkbox">
   </div>
@@ -206,6 +210,11 @@
   var autosave = document.getElementById("autosave");
   prefs.get("autoSave", function (v) { autosave.checked = !!v; });
   autosave.addEventListener("change", function () { prefs.set("autoSave", !!autosave.checked); });
+
+  // Reopen-last-playlist-at-launch toggle
+  var restoreLast = document.getElementById("restorelast");
+  prefs.get("restoreLastPlaylist", function (v) { restoreLast.checked = !!v; });
+  restoreLast.addEventListener("change", function () { prefs.set("restoreLastPlaylist", !!restoreLast.checked); });
 
   // Start-paused toggle and how long the plugin keeps the track paused
   var pauseOnOpen = document.getElementById("pauseonopen");
