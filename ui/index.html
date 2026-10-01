@@ -228,6 +228,8 @@
     flex: 0 0 36px; width: 36px; height: 36px; border-radius: 4px;
     background: var(--field-bg); object-fit: cover;
   }
+  .ytm-stats { display: flex; flex-direction: column; align-items: flex-end; gap: 1px; }
+  .ytm-plays { font-size: 10px; color: var(--fg-tertiary); }
   .ytm-actions { flex: 0 0 auto; display: flex; gap: 4px; }
   .ytm-actions .btn { padding: 3px 7px; }
   .ytm-actions .btn.added { color: var(--accent); }
@@ -679,7 +681,7 @@
   // The backend searches (ytmusic.js) and replies with "pl:ytm-results"; the panel
   // stays open after adding, so several songs can be picked in a row.
   var YTM_HINT = "Type a song, artist or album and press ↩.";
-  var ytmResults = [];      // [{url, title, artist, album, duration, thumbnail}]
+  var ytmResults = [];      // [{url, title, artist, album, duration, plays, thumbnail}]
   var ytmCursor = -1;       // index of the highlighted result
   var ytmLastQuery = "";    // query the shown results belong to ("" = none / failed)
   var ytmRequestId = 0;     // id of the newest search; replies to older ones are ignored
@@ -726,7 +728,9 @@
       + "<span class='meta'>"
       + (sub ? "<span class='sub' title='" + sub + "'>" + sub + "</span>" : "")
       + "<span class='title' title='" + esc(track.title) + "'>" + esc(track.title) + "</span></span>"
-      + "<span class='dur'>" + fmtDur(track.duration) + "</span>"
+      + "<span class='dur ytm-stats'><span>" + fmtDur(track.duration) + "</span>"
+      + (track.plays ? "<span class='ytm-plays' title='Plays on YouTube Music'>▶ " + esc(track.plays) + "</span>" : "")
+      + "</span>"
       + "<span class='ytm-actions'>"
       + "<button class='btn' data-act='next' title='Play next (⇧↩)'>Next</button>"
       + "<button class='btn icon" + (added ? " added" : "") + "' data-act='add' title='Add to the end of the playlist (↩)'>"

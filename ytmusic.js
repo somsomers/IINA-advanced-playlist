@@ -146,6 +146,14 @@ function parseDetailRuns(runs) {
   return details;
 }
 
+// The third column reads e.g. "2.3B plays" (English, since requests use hl=en).
+// Returns the abbreviated count ("2.3B"), or "" when the column holds something else.
+const PLAYS_SUFFIX = /\s*plays?$/i;
+function parsePlays(runs) {
+  const text = joinRunTexts(runs);
+  return PLAYS_SUFFIX.test(text) ? text.replace(PLAYS_SUFFIX, "") : "";
+}
+
 // The largest of the (small) thumbnails the search returns — sharp on Retina.
 function thumbnailUrl(renderer) {
   const thumbs = dig(renderer, ["thumbnail", "musicThumbnailRenderer", "thumbnail", "thumbnails"]) || [];
@@ -163,6 +171,7 @@ function parseSongRenderer(renderer) {
     artist: details.artist,
     album: details.album,
     duration: details.duration,
+    plays: parsePlays(columnRuns(renderer, 2)),
     thumbnail: thumbnailUrl(renderer)
   };
 }
@@ -189,7 +198,7 @@ function parseYtdlpLine(line) {
   const videoId = (tab >= 0 ? line.slice(0, tab) : line).trim();
   const title = tab >= 0 ? line.slice(tab + 1).trim() : "";
   if (!videoId) return null;
-  return { url: watchUrl(videoId), title: title === "NA" ? "" : title, artist: "", album: "", duration: 0, thumbnail: "" };
+  return { url: watchUrl(videoId), title: title === "NA" ? "" : title, artist: "", album: "", duration: 0, plays: "", thumbnail: "" };
 }
 
 function searchWithYtdlp(query, ytdlpPath) {
@@ -206,7 +215,8 @@ function searchWithYtdlp(query, ytdlpPath) {
 // Public API
 // ---------------------------------------------------------------------------
 // Resolves to { tracks, titlesOnly } where each track is
-// { url, title, artist, album, duration, thumbnail }. `titlesOnly` is true when
+// { url, title, artist, album, duration, plays, thumbnail } (`plays` is an
+// abbreviated count such as "2.3B", or ""). `titlesOnly` is true when
 // the yt-dlp fallback answered. `ytdlpPath` may be null (no fallback then).
 function searchSongs(query, ytdlpPath) {
   return searchWithApi(query)

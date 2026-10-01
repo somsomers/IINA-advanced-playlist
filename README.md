@@ -30,7 +30,7 @@ opens it.
 - **Remove** — `⌫`/`Delete` or context menu (multi-select supported).
 - **Add files** — native open panel → appended to the playlist.
 - **YouTube Music search** (`🎵`) — search songs without leaving the playlist;
-  results show cover, artist · album and duration. `＋` / `↩` / double-click
+  results show cover, artist · album, duration and play count (`▶ 2.3B`). `＋` / `↩` / double-click
   appends a song, `Next` / `⇧↩` inserts it right after the current track,
   `＋ All` appends every result, `Esc` returns to the playlist. See
   [YouTube Music search](#youtube-music-search) below.
