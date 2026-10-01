@@ -89,6 +89,10 @@ opens it.
 - **Fallback** — if the API fails (e.g. YouTube changed its format), the search
   goes through yt-dlp instead. Results then show titles only; artist/album are
   filled in by the usual yt-dlp enrichment once a song is added.
+- **Sorting** — results keep YouTube Music's relevance order by default;
+  **Preferences → YouTube Music search** can sort them by play count, most
+  played first (from the next search; not available in the yt-dlp fallback,
+  which has no counts).
 - **Playback** — songs are added as `https://music.youtube.com/watch?v=…` URLs and
   played through IINA's youtube-dl/yt-dlp support, like any pasted URL.
 

@@ -29,6 +29,7 @@
     "ytdlpPath": "",
     "autoSave": false,
     "pausePlaylistOnOpen": true,
-    "pauseHoldSeconds": 1
+    "pauseHoldSeconds": 1,
+    "ytmSortByPlays": false
   }
 }

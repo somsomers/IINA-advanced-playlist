@@ -713,7 +713,8 @@
   function ytmStatusText(reply) {
     if (reply.error) return reply.error;
     if (!ytmResults.length) return "Nothing found.";
-    var text = ytmResults.length + (ytmResults.length === 1 ? " song" : " songs") + " · ↩ add · ⇧↩ play next";
+    var text = ytmResults.length + (ytmResults.length === 1 ? " song" : " songs")
+      + (reply.sortedByPlays ? " (most played first)" : "") + " · ↩ add · ⇧↩ play next";
     return reply.titlesOnly ? text + " · titles only for now (artist fills in after adding)" : text;
   }
 

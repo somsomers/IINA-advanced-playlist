@@ -1141,11 +1141,19 @@ function copyNext(index) {
 // ---------------------------------------------------------------------------
 // Reply only to the surface that asked. `requestId` comes back unchanged so the
 // UI can drop answers to queries the user has already replaced.
+function ytmSortByPlaysEnabled() {
+  try { return !!preferences.get("ytmSortByPlays"); } catch (e) { return false; }
+}
+
+// The preference is read per search, so a toggle takes effect on the next query.
 function searchYtMusic(surface, query, requestId) {
   ytMusic.searchSongs(query, findYtdlp())
     .then(function (result) {
-      postTo(surface, "pl:ytm-results",
-        { requestId: requestId, tracks: result.tracks, titlesOnly: result.titlesOnly });
+      const sortedByPlays = ytmSortByPlaysEnabled() && !result.titlesOnly; // no counts in the fallback
+      const tracks = sortedByPlays ? ytMusic.sortByPlaysDescending(result.tracks) : result.tracks;
+      postTo(surface, "pl:ytm-results", {
+        requestId: requestId, tracks: tracks, titlesOnly: result.titlesOnly, sortedByPlays: sortedByPlays
+      });
     })
     .catch(function (e) {
       console.log("YouTube Music search failed: " + e);

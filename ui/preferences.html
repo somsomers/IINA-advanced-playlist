@@ -88,6 +88,15 @@
     it if a video or an online track still starts playing; while it runs, a Play pressed
     in the player window may be undone once (the plugin's own Play always works).</p>
 
+  <h2 style="margin-top:22px">YouTube Music search</h2>
+  <p class="hint">By default results keep YouTube Music's own relevance order. Sorting by
+    play count puts the most played songs first — handy for telling an original from
+    covers and re-uploads. Applies from the next search.</p>
+  <div class="row">
+    <span class="label">Sort results by play count (most played first)</span>
+    <input id="ytmsortplays" class="chk" type="checkbox">
+  </div>
+
   <h2 style="margin-top:22px">Online metadata (yt-dlp)</h2>
   <p class="hint">For YouTube and other sites the plugin asks <b>yt-dlp</b> for
     artist / album / track (mpv only forwards the title). It is auto-detected in
@@ -216,6 +225,11 @@
     pauseHold.value = seconds;
     prefs.set("pauseHoldSeconds", seconds);
   });
+
+  // YouTube Music: sort search results by play count
+  var ytmSortPlays = document.getElementById("ytmsortplays");
+  prefs.get("ytmSortByPlays", function (v) { ytmSortPlays.checked = !!v; });
+  ytmSortPlays.addEventListener("change", function () { prefs.set("ytmSortByPlays", !!ytmSortPlays.checked); });
 
   // yt-dlp path field
   var ytinput = document.getElementById("ytpath");

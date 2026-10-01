@@ -212,6 +212,28 @@ function searchWithYtdlp(query, ytdlpPath) {
 }
 
 // ---------------------------------------------------------------------------
+// Sorting by play count
+// ---------------------------------------------------------------------------
+const PLAYS_MULTIPLIERS = { "": 1, K: 1e3, M: 1e6, B: 1e9 };
+const PLAYS_NUMBER_PATTERN = /^([\d.,]+)\s*([KMB]?)$/i;
+
+// "2.3B" → 2300000000, "646K" → 646000, "950" → 950; 0 when unknown.
+function playsToNumber(plays) {
+  const match = PLAYS_NUMBER_PATTERN.exec(String(plays || "").trim());
+  if (!match) return 0;
+  return parseFloat(match[1].replace(/,/g, "")) * PLAYS_MULTIPLIERS[match[2].toUpperCase()];
+}
+
+// Most played first. Ties (and tracks without a count, e.g. from the yt-dlp
+// fallback) keep YouTube's relevance order.
+function sortByPlaysDescending(tracks) {
+  return tracks
+    .map(function (track, index) { return { track: track, index: index, plays: playsToNumber(track.plays) }; })
+    .sort(function (a, b) { return (b.plays - a.plays) || (a.index - b.index); })
+    .map(function (entry) { return entry.track; });
+}
+
+// ---------------------------------------------------------------------------
 // Public API
 // ---------------------------------------------------------------------------
 // Resolves to { tracks, titlesOnly } where each track is
@@ -229,4 +251,4 @@ function searchSongs(query, ytdlpPath) {
     });
 }
 
-module.exports = { searchSongs: searchSongs };
+module.exports = { searchSongs: searchSongs, sortByPlaysDescending: sortByPlaysDescending };
