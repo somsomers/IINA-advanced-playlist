@@ -51,6 +51,12 @@ opens it.
   playlist last saved or loaded (in any window) is reopened when IINA is
   launched on its own. Launching IINA to open a file leaves that file alone;
   deleting the remembered playlist forgets it.
+- **Show on open** (**Preferences → Playlists**, sidebar by default) — when a
+  player window opens, the playlist is shown in its sidebar or in the separate
+  window (or not at all). It happens once per player, after its first track
+  loads, since the player window only appears then. In music mode (IINA's
+  default for audio) the main window and its sidebar are hidden, so the
+  separate window is opened instead.
 - **Start paused** (on by default, **Preferences → Playlists**) — loading or
   importing a playlist, or opening an `.m3u/.m3u8/.pls` file in IINA (Finder,
   *File → Open*, at launch), selects the first track without playing it. mpv

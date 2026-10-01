@@ -30,6 +30,7 @@
     "autoSave": false,
     "restoreLastPlaylist": true,
     "lastPlaylistName": "",
+    "showOnStart": "sidebar",
     "pausePlaylistOnOpen": true,
     "pauseHoldSeconds": 1,
     "ytmSortByPlays": false

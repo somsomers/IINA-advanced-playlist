@@ -49,6 +49,7 @@
   .txt:focus { outline: none; border-color: var(--accent); }
   .txt:disabled { opacity: 0.45; }
   .txt.num { flex-basis: 72px; text-align: right; }
+  .txt.sel { flex-basis: 170px; }
   .chk { flex: 0 0 auto; width: 15px; height: 15px; accent-color: var(--accent); cursor: pointer; }
 </style>
 </head>
@@ -76,6 +77,14 @@
   <div class="row">
     <span class="label">Reopen the last playlist when IINA starts</span>
     <input id="restorelast" class="chk" type="checkbox">
+  </div>
+  <div class="row">
+    <span class="label">Show the playlist when a player opens</span>
+    <select id="showonstart" class="txt sel">
+      <option value="off">Don't show</option>
+      <option value="sidebar">In the sidebar</option>
+      <option value="window">In a separate window</option>
+    </select>
   </div>
   <div class="row">
     <span class="label">Start paused when a playlist is opened</span>
@@ -215,6 +224,11 @@
   var restoreLast = document.getElementById("restorelast");
   prefs.get("restoreLastPlaylist", function (v) { restoreLast.checked = !!v; });
   restoreLast.addEventListener("change", function () { prefs.set("restoreLastPlaylist", !!restoreLast.checked); });
+
+  // Where to show the playlist when a player opens
+  var showOnStart = document.getElementById("showonstart");
+  prefs.get("showOnStart", function (v) { showOnStart.value = v || "off"; });
+  showOnStart.addEventListener("change", function () { prefs.set("showOnStart", showOnStart.value); });
 
   // Start-paused toggle and how long the plugin keeps the track paused
   var pauseOnOpen = document.getElementById("pauseonopen");

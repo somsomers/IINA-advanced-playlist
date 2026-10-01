@@ -1392,6 +1392,34 @@ function applyMainHidden(hidden) {
 }
 
 // ---------------------------------------------------------------------------
+// Show the playlist when the player opens ("showOnStart" preference:
+// "off" | "sidebar" | "window"). The player window only appears once its first
+// track is loaded, so this waits for that and then runs once per player.
+// ---------------------------------------------------------------------------
+const SHOW_ON_START_DELAY = 500; // ms for the player window to appear after the first load
+let shownOnStart = false;
+
+function showOnStartTarget() {
+  try { return String(preferences.get("showOnStart") || "off"); } catch (e) { return "off"; }
+}
+// False in music mode: IINA hides the main window (and its sidebar) for audio
+// and shows the mini player, which has no plugin tabs.
+function mainWindowVisible() {
+  try { return !!core.window.visible; } catch (e) { return false; }
+}
+function showPlaylistOnStart() {
+  if (shownOnStart) return;
+  shownOnStart = true;
+  const target = showOnStartTarget();
+  if (target === "sidebar" && mainWindowVisible()) {
+    initSidebar();
+    try { sidebar.show(); } catch (e) { console.log("show sidebar on start failed: " + e); }
+  } else if (target === "sidebar" || target === "window") {
+    openWindow();
+  }
+}
+
+// ---------------------------------------------------------------------------
 // mpv metadata for the current file — always authoritative.
 // ---------------------------------------------------------------------------
 let lastCurMetaSig = "";
@@ -1467,6 +1495,7 @@ setTimeout(restoreLastPlaylist, RESTORE_CHECK_DELAY);
 event.on("iina.file-loaded", function () {
   onFileLoadedForPauseHold(); // first, so an unwanted resume is undone as early as possible
   refreshCurrentMetadata(); scheduleState(); broadcastTransport(true); updateWindowTitle();
+  if (!shownOnStart) setTimeout(showPlaylistOnStart, SHOW_ON_START_DELAY);
   // Lazily enrich the currently playing network track (YouTube etc.) via yt-dlp.
   try {
     const l = getRawPlaylist();
