@@ -507,7 +507,7 @@ function addUrl(url) {
   url = String(url || "").trim();
   if (!url) return;
   if (!findYtdlp() || !/^https?:\/\//i.test(url)) {
-    playlist.add(url, -1); setTimeout(onPlaylistChanged, 150); return;
+    addToPlaylist(url, -1); setTimeout(onPlaylistChanged, 150); return;
   }
   core.osd("Fetching…");
   utils.exec(ytdlpPath, ["--flat-playlist", "--print",
@@ -530,16 +530,16 @@ function addUrl(url) {
         });
       }
       if (urls.length) {
-        playlist.add(urls, -1);
+        addToPlaylist(urls, -1);
         persistCache();
         core.osd("Added " + urls.length + (urls.length === 1 ? " track" : " tracks"));
         enqueueEnrich(urls);
         setTimeout(onPlaylistChanged, 200);
       } else {
-        playlist.add(url, -1); setTimeout(onPlaylistChanged, 150);
+        addToPlaylist(url, -1); setTimeout(onPlaylistChanged, 150);
       }
     })
-    .catch(function () { playlist.add(url, -1); setTimeout(onPlaylistChanged, 150); });
+    .catch(function () { addToPlaylist(url, -1); setTimeout(onPlaylistChanged, 150); });
 }
 
 // ---------------------------------------------------------------------------
@@ -1071,11 +1071,34 @@ function refreshAutoSaveState() {
 // ---------------------------------------------------------------------------
 // Playlist mutations
 // ---------------------------------------------------------------------------
+// Tracks waiting for the player to leave the idle state (see addToPlaylist).
+let pendingAdds = [];
+
+// IINA's playlist.add is a no-op while the player is idle (nothing opened yet,
+// e.g. a fresh install with no playlist to restore at launch). In that case the
+// first track is opened through IINA itself and the rest are appended once it
+// has loaded. Returns false if nothing could be added.
+function addToPlaylist(paths, at) {
+  const list = [].concat(paths).filter(Boolean);
+  if (!list.length) return false;
+  if (!playerIsIdle()) return playlist.add(list, at) !== false;
+  pendingAdds = pendingAdds.concat(list.slice(1));
+  core.open(list[0]);
+  return true;
+}
+function flushPendingAdds() {
+  if (!pendingAdds.length) return;
+  const list = pendingAdds;
+  pendingAdds = [];
+  playlist.add(list, -1);
+  setTimeout(onPlaylistChanged, 150);
+}
+
 function addFiles() {
   // The plugin API's file picker is single-selection only (no multi-select),
   // so use "Add folder" to add many files at once.
   utils.chooseFile("Add a media file", { allowedFileTypes: MEDIA_EXT })
-    .then(function (p) { if (p) { playlist.add(p, -1); setTimeout(onPlaylistChanged, 120); } })
+    .then(function (p) { if (p) { addToPlaylist(p, -1); setTimeout(onPlaylistChanged, 120); } })
     .catch(function () { });
 }
 function addFolder() {
@@ -1093,7 +1116,7 @@ function addFolder() {
       });
       paths.sort();
       if (!paths.length) { core.osd("No media files found in the folder"); return; }
-      playlist.add(paths, -1);
+      addToPlaylist(paths, -1);
       core.osd("Added " + paths.length + (paths.length === 1 ? " file" : " files"));
       setTimeout(onPlaylistChanged, 150);
     })
@@ -1241,7 +1264,7 @@ function addYtMusicTracks(tracks, playNext) {
   persistCache();
   const urls = valid.map(function (t) { return t.url; });
   let added = false;
-  try { added = playlist.add(urls, playNext ? indexAfterCurrent() : -1); } catch (e) { }
+  try { added = addToPlaylist(urls, playNext ? indexAfterCurrent() : -1); } catch (e) { }
   if (added === false) { core.osd("Couldn't add to the playlist"); return; }
   core.osd(playNext ? countLabel(urls.length) + " will play next" : countLabel(urls.length) + " added");
   enqueueEnrich(urls); // fills in whatever the search didn't know (e.g. after the yt-dlp fallback)
@@ -1516,6 +1539,7 @@ setTimeout(restoreLastPlaylist, RESTORE_CHECK_DELAY);
 
 event.on("iina.file-loaded", function () {
   onFileLoadedForPauseHold(); // first, so an unwanted resume is undone as early as possible
+  flushPendingAdds();
   refreshCurrentMetadata(); scheduleState(); broadcastTransport(true); updateWindowTitle();
   if (!shownOnStart) setTimeout(showPlaylistOnStart, SHOW_ON_START_DELAY);
   // Lazily enrich the currently playing network track (YouTube etc.) via yt-dlp.
