@@ -456,17 +456,7 @@ function findYtdlp() {
   for (let i = 0; i < cands.length; i++) {
     try { if (cands[i] && file.exists(cands[i])) { ytdlpPath = cands[i]; break; } } catch (e) { }
   }
-  if (!ytdlpPath) ytdlpPath = findBundledYtdlp();
   return ytdlpPath;
-}
-// IINA ships yt-dlp inside its app bundle (named "youtube-dl"). A bare name
-// makes utils.exec run that bundled binary, so no Homebrew install is needed.
-function findBundledYtdlp() {
-  const names = ["yt-dlp", "youtube-dl"];
-  for (let i = 0; i < names.length; i++) {
-    try { if (utils.fileInPath(names[i])) return names[i]; } catch (e) { }
-  }
-  return null;
 }
 
 function enqueueEnrich(urls, front) {
@@ -517,8 +507,10 @@ function addUrl(url) {
   url = String(url || "").trim();
   if (!url) return;
   if (!findYtdlp() || !/^https?:\/\//i.test(url)) {
+    if (!ytdlpPath) console.log("yt-dlp not found; adding the URL as is: " + url);
     addToPlaylist(url, -1); setTimeout(onPlaylistChanged, 150); return;
   }
+  console.log("Expanding the URL with " + ytdlpPath + ": " + url);
   core.osd("Fetching…");
   utils.exec(ytdlpPath, ["--flat-playlist", "--print",
                          "%(webpage_url,url)s\t%(title|)s\t%(uploader,channel|)s", url])
@@ -546,10 +538,15 @@ function addUrl(url) {
         enqueueEnrich(urls);
         setTimeout(onPlaylistChanged, 200);
       } else {
+        console.log("yt-dlp returned no entries (status " + (res && res.status) + "): " +
+                    String((res && res.stderr) || "").trim());
         addToPlaylist(url, -1); setTimeout(onPlaylistChanged, 150);
       }
     })
-    .catch(function () { addToPlaylist(url, -1); setTimeout(onPlaylistChanged, 150); });
+    .catch(function (e) {
+      console.log("yt-dlp failed to run: " + e);
+      addToPlaylist(url, -1); setTimeout(onPlaylistChanged, 150);
+    });
 }
 
 // ---------------------------------------------------------------------------
