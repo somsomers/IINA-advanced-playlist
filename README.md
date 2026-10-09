@@ -153,3 +153,7 @@ To ship it as a normal plugin instead, rename the folder to
 
 The UI is a single self-contained HTML file because the sidebar `WKWebView`
 loads a `file://` URL without read access to sibling files.
+
+## License
+
+[MIT](LICENSE) © 2026 somename
