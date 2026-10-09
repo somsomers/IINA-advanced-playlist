@@ -456,7 +456,17 @@ function findYtdlp() {
   for (let i = 0; i < cands.length; i++) {
     try { if (cands[i] && file.exists(cands[i])) { ytdlpPath = cands[i]; break; } } catch (e) { }
   }
+  if (!ytdlpPath) ytdlpPath = findBundledYtdlp();
   return ytdlpPath;
+}
+// IINA ships yt-dlp inside its app bundle (named "youtube-dl"). A bare name
+// makes utils.exec run that bundled binary, so no Homebrew install is needed.
+function findBundledYtdlp() {
+  const names = ["yt-dlp", "youtube-dl"];
+  for (let i = 0; i < names.length; i++) {
+    try { if (utils.fileInPath(names[i])) return names[i]; } catch (e) { }
+  }
+  return null;
 }
 
 function enqueueEnrich(urls, front) {
