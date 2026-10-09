@@ -77,7 +77,7 @@
   .btn.dir { min-width: 26px; justify-content: center; }
   .spacer { flex: 1 1 auto; }
 
-  /* Saved playlists dropdown */
+  /* "Add" and saved-playlists dropdowns */
   .dropdown { position: relative; }
   .menu {
     position: absolute; top: 100%; left: 0; margin-top: 4px; min-width: 200px;
@@ -262,10 +262,16 @@
       <button id="sortdir" class="btn dir" title="Toggle sort direction">↑</button>
     </div>
     <div class="toolbar-row">
-      <button id="add" class="btn" title="Add a media file">＋ Add</button>
-      <button id="addfolder" class="btn icon" title="Add a folder (all media inside, incl. subfolders)">📁</button>
-      <button id="addurl" class="btn icon" title="Add a URL (single video or a playlist)">🔗</button>
-      <button id="ytmOpen" class="btn icon" title="Search YouTube Music and add songs">🎵</button>
+      <div class="dropdown">
+        <button id="addBtn" class="btn" title="Add to the playlist">＋ Add ▾</button>
+        <div id="addMenu" class="menu">
+          <div class="mi" data-add="file" title="Add a media file">📄 <span class="name">File…</span></div>
+          <div class="mi" data-add="folder" title="All media inside, incl. subfolders">📁 <span class="name">Folder…</span></div>
+          <div class="mi" data-add="url" title="A single video or a playlist">🔗 <span class="name">URL or YouTube link…</span></div>
+          <div class="sep"></div>
+          <div class="mi" data-add="ytm" title="Search songs and add them">🎵 <span class="name">Search YouTube Music…</span></div>
+        </div>
+      </div>
       <div class="dropdown">
         <button id="loadBtn" class="btn" title="Load a saved playlist">▾ Load</button>
         <div id="loadMenu" class="menu"></div>
@@ -640,10 +646,17 @@
     html += "<div class='sep'></div><div class='mi' data-import='1'>Import file…</div>";
     menu.innerHTML = html;
   }
-  function toggleLoadMenu(open) {
-    var menu = $("loadMenu");
+  // Opens/closes a toolbar dropdown menu; open == null toggles it. Opening one closes the others.
+  function toggleMenu(menuId, open) {
+    var menu = $(menuId);
     if (open == null) open = !menu.classList.contains("open");
+    if (open) closeMenus();
     menu.classList.toggle("open", open);
+  }
+  function toggleLoadMenu(open) { toggleMenu("loadMenu", open); }
+  function toggleAddMenu(open) { toggleMenu("addMenu", open); }
+  function closeMenus() {
+    document.querySelectorAll(".menu.open").forEach(function (m) { m.classList.remove("open"); });
   }
 
   // ---- save dialog (doubles as "Save As") ----
@@ -689,7 +702,7 @@
 
   function isYtmOpen() { return document.body.classList.contains("ytm-open"); }
   function openYtm() {
-    hideCtx(); toggleLoadMenu(false);
+    hideCtx(); closeMenus();
     document.body.classList.add("ytm-open");
     if (!ytmLastQuery && !ytmResults.length) setYtmStatus(YTM_HINT, false);
     $("ytmQuery").focus();
@@ -932,9 +945,9 @@
 
   document.addEventListener("mousedown", function (e) {
     if (!e.target.closest("#ctx")) hideCtx();
-    if (!e.target.closest(".dropdown")) toggleLoadMenu(false);
+    if (!e.target.closest(".dropdown")) closeMenus();
   });
-  window.addEventListener("blur", function () { hideCtx(); toggleLoadMenu(false); });
+  window.addEventListener("blur", function () { hideCtx(); closeMenus(); });
 
   $("search").addEventListener("input", function (e) {
     filter = e.target.value || "";
@@ -959,10 +972,20 @@
     send("ui:sort", { key: sortKey, dir: sortDir });
   });
 
-  $("add").addEventListener("click", function () { send("ui:add"); });
-  $("addfolder").addEventListener("click", function () { send("ui:addfolder"); });
-  $("addurl").addEventListener("click", function () { send("ui:addurl"); });
-  $("ytmOpen").addEventListener("click", openYtm);
+  // Items of the "＋ Add" menu, keyed by their data-add attribute.
+  var ADD_ACTIONS = {
+    file: function () { send("ui:add"); },
+    folder: function () { send("ui:addfolder"); },
+    url: function () { send("ui:addurl"); },
+    ytm: openYtm
+  };
+  $("addBtn").addEventListener("click", function () { toggleAddMenu(); });
+  $("addMenu").addEventListener("click", function (e) {
+    var mi = e.target.closest(".mi[data-add]");
+    if (!mi) return;
+    toggleAddMenu(false);
+    ADD_ACTIONS[mi.getAttribute("data-add")]();
+  });
   $("ytmClose").addEventListener("click", closeYtm);
   $("ytmAddAll").addEventListener("click", addAllYtmResults);
   $("ytmResults").addEventListener("click", function (e) {
