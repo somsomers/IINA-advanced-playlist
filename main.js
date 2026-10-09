@@ -1264,7 +1264,7 @@ function addYtMusicTracks(tracks, playNext) {
   persistCache();
   const urls = valid.map(function (t) { return t.url; });
   let added = false;
-  try { added = addToPlaylist(urls, playNext ? indexAfterCurrent() : -1); } catch (e) { }
+  try { added = addToPlaylist(urls, playNext ? indexAfterCurrent() : -1); } catch (e) { console.log("playlist.add failed: " + e); }
   if (added === false) { core.osd("Couldn't add to the playlist"); return; }
   core.osd(playNext ? countLabel(urls.length) + " will play next" : countLabel(urls.length) + " added");
   enqueueEnrich(urls); // fills in whatever the search didn't know (e.g. after the yt-dlp fallback)

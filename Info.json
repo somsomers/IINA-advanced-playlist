@@ -15,8 +15,10 @@
   },
   "permissions": [
     "file-system",
+    "network-request",
     "show-osd"
   ],
+  "allowedDomains": ["*"],
   "preferenceDefaults": {
     "winW": 620,
     "winH": 520,
