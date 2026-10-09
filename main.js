@@ -645,6 +645,21 @@ function togglePlayPause() {
     if (mpv.getFlag("pause")) core.resume(); else core.pause();
   } catch (e) { }
 }
+function seekToStart() {
+  try { core.seekTo(0); } catch (e) { try { mpv.command("seek", ["0", "absolute"]); } catch (_) { } }
+}
+// Winamp-style "Play": always (re)starts the current track from the beginning.
+function restartPlayback() {
+  releasePauseHold();
+  seekToStart();
+  try { core.resume(); } catch (e) { }
+}
+// Winamp-style "Stop": pause and rewind. mpv's own "stop" would clear the playlist.
+function stopPlayback() {
+  releasePauseHold();
+  try { core.pause(); } catch (e) { }
+  seekToStart();
+}
 // "Previous" the way music players do it: past ~3s into the track, restart the
 // current track; within the first 3s, jump to the previous track.
 const PREV_RESTART_THRESHOLD = 3;
@@ -652,7 +667,7 @@ function smartPrevious() {
   let pos = 0;
   try { pos = mpv.getNumber("time-pos") || 0; } catch (e) { }
   if (pos >= PREV_RESTART_THRESHOLD) {
-    try { core.seekTo(0); } catch (e) { try { mpv.command("seek", ["0", "absolute"]); } catch (_) { } }
+    seekToStart();
   } else {
     try { playlist.playPrevious(); } catch (e) { }
   }
@@ -794,14 +809,17 @@ function onFileLoadedForPauseHold() {
 // plugin's preferences page. System-wide (app-in-background) is not possible
 // from a plugin, so these only fire while an IINA window is focused.
 // ---------------------------------------------------------------------------
+function afterTransportChange() { setTimeout(function () { broadcastTransport(true); }, 40); }
 const HK_ACTIONS = {
-  playpause: function () { togglePlayPause(); setTimeout(function () { broadcastTransport(true); }, 40); },
-  prev: function () { smartPrevious(); },
+  prev: function () { try { playlist.playPrevious(); } catch (e) { } },
+  play: function () { restartPlayback(); afterTransportChange(); },
+  pause: function () { togglePlayPause(); afterTransportChange(); },
+  stop: function () { stopPlayback(); afterTransportChange(); },
   next: function () { try { playlist.playNext(); } catch (e) { } },
   seekBack: function () { try { core.seek(-10, false); } catch (e) { } },
   seekFwd: function () { try { core.seek(10, false); } catch (e) { } }
 };
-const HK_ACTION_KEYS = ["playpause", "prev", "next", "seekBack", "seekFwd"];
+const HK_ACTION_KEYS = ["prev", "play", "pause", "stop", "next", "seekBack", "seekFwd"];
 let appliedHotkeys = [];   // mpv keys currently registered with iina.input
 let lastHotkeySig = "";
 
@@ -1282,6 +1300,10 @@ function registerHandlers(surface, isStandalone) {
   surface.onMessage("ui:playPrev", function () { playlist.playPrevious(); });
   surface.onMessage("ui:playpause", function () { togglePlayPause(); setTimeout(function () { broadcastTransport(true); }, 40); });
   surface.onMessage("ui:prev-smart", function () { smartPrevious(); });
+  // A playback hotkey pressed inside the playlist webview; d.action is an HK_ACTIONS key.
+  surface.onMessage("ui:hotkey", function (d) {
+    if (d && HK_ACTIONS.hasOwnProperty(d.action)) HK_ACTIONS[d.action]();
+  });
   surface.onMessage("ui:seek", function (d) {
     if (d && typeof d.pos === "number") {
       try { core.seekTo(d.pos); } catch (e) { }

@@ -361,7 +361,7 @@
   var transportState = { paused: true, loop: "off", shuffle: false };
   var progress = { pos: 0, dur: 0, paused: true };
   var scrubbing = false;
-  var hotkeys = {}; // { playpause, prev, next, seekBack, seekFwd } as mpv key strings
+  var hotkeys = {}; // { prev, play, pause, stop, next, seekBack, seekFwd } as mpv key strings
 
   var $ = function (id) { return document.getElementById(id); };
   function send(name, data) { iina.postMessage(name, data || {}); }
@@ -1060,12 +1060,9 @@
   function handlePlaybackHotkey(e) {
     var mk = eventToMpvKey(e);
     if (!mk) return false;
-    if (mk === hotkeys.playpause) { transportState.paused = !transportState.paused; renderTransport(); send("ui:playpause"); }
-    else if (mk === hotkeys.prev) send("ui:prev-smart");
-    else if (mk === hotkeys.next) send("ui:playNext");
-    else if (mk === hotkeys.seekBack) send("ui:seek-rel", { delta: -10 });
-    else if (mk === hotkeys.seekFwd) send("ui:seek-rel", { delta: 10 });
-    else return false;
+    var action = Object.keys(hotkeys).find(function (a) { return hotkeys[a] && hotkeys[a] === mk; });
+    if (!action) return false;
+    send("ui:hotkey", { action: action });
     e.preventDefault();
     return true;
   }

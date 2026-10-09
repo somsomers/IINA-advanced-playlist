@@ -17,11 +17,19 @@ opens it.
   playlist → one track, via `loop-playlist`/`loop-file`) and **shuffle**
   (`playlist-shuffle` / `playlist-unshuffle`). Reflects state changed elsewhere.
 - **Seek bar** — current / total time; click or drag to seek (`core.seekTo`).
-- **Configurable hotkeys** — set keys for play/pause, previous, next and
+- **Configurable hotkeys** — set keys for previous, play, pause, stop, next and
   seek ±10s on the plugin's **Preferences** page. They work inside IINA: in the
   **main player window** (via `iina.input`) and in the **playlist window/sidebar**.
   Not system-wide (a plugin can't grab keys while IINA is in the background).
-  Defaults: `X` play/pause, `Z` previous, `C` next.
+  Defaults (Winamp-style):
+
+  | Key | Action   | Description                   |
+  |-----|----------|-------------------------------|
+  | `Z` | Previous | Skips to the previous track   |
+  | `X` | Play     | Starts or restarts playback   |
+  | `C` | Pause    | Toggles pause and resume      |
+  | `V` | Stop     | Stops playback completely     |
+  | `B` | Next     | Skips to the next track       |
 - **Search** — live filter across title / artist / album / path.
 - **Sort** — by playlist order, title, artist, album or duration (asc/desc).
 - **Reorder** — drag rows (only in "Playlist order" view) → `playlist.move`.
