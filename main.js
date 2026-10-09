@@ -454,7 +454,11 @@ function findYtdlp() {
   cands.push("/opt/homebrew/bin/yt-dlp", "/usr/local/bin/yt-dlp",
              "/opt/homebrew/bin/youtube-dl", "/usr/local/bin/youtube-dl");
   for (let i = 0; i < cands.length; i++) {
-    try { if (cands[i] && file.exists(cands[i])) { ytdlpPath = cands[i]; break; } } catch (e) { }
+    try {
+      const found = !!cands[i] && file.exists(cands[i]);
+      console.log("findYtdlp: " + cands[i] + " exists=" + found);
+      if (found) { ytdlpPath = cands[i]; break; }
+    } catch (e) { console.log("findYtdlp: " + cands[i] + " threw: " + e); }
   }
   return ytdlpPath;
 }
