@@ -1268,6 +1268,20 @@ function rememberTrackMetadata(track) {
 function countLabel(n) { return n + (n === 1 ? " track" : " tracks"); }
 
 // Append the tracks, or insert them right after the current one (`playNext`).
+// The web view has no reliable clipboard access, so the text is piped into pbcopy.
+// It is passed as a positional shell argument ("$1"), never spliced into the script.
+function copyToClipboard(text) {
+  return utils.exec("/bin/sh", ["-c", "printf '%s' \"$1\" | /usr/bin/pbcopy", "sh", text])
+    .then(function (res) { return !!res && res.status === 0; })
+    .catch(function (e) { console.log("pbcopy failed: " + e); return false; });
+}
+function copyLinks(links) {
+  copyToClipboard(links.join("\n")).then(function (copied) {
+    if (!copied) { core.osd("Couldn't copy the link"); return; }
+    core.osd(links.length === 1 ? "Link copied" : links.length + " links copied");
+  });
+}
+
 function addYtMusicTracks(tracks, playNext) {
   const valid = tracks.filter(function (t) { return t && typeof t.url === "string" && t.url; });
   if (!valid.length) return;
@@ -1372,6 +1386,7 @@ function registerHandlers(surface, isStandalone) {
   });
   surface.onMessage("ui:clear", function () { clearPlaylist(); });
   surface.onMessage("ui:reveal", function (d) { if (d && d.path) { try { file.showInFinder(d.path); } catch (e) { } } });
+  surface.onMessage("ui:copy-links", function (d) { if (d && d.links && d.links.length) copyLinks(d.links); });
   surface.onMessage("ui:save", function (d) { savePlaylist(d && d.name); });
   surface.onMessage("ui:load", function (d) { if (d && d.name) loadPlaylist(d.name); });
   surface.onMessage("ui:import", function () { importPlaylist(); });
