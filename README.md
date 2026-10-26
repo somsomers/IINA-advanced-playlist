@@ -17,9 +17,10 @@ opens it.
   playlist → one track, via `loop-playlist`/`loop-file`) and **shuffle**
   (`playlist-shuffle` / `playlist-unshuffle`). Reflects state changed elsewhere.
 - **Seek bar** — current / total time; click or drag to seek (`core.seekTo`).
-- **Equalizer** — a compact bar above the seek bar is always shown: on/off,
-  preset and the current curve. **▴** expands it into 10 band sliders
-  (32 Hz – 16 kHz, ±12 dB; double-click a slider to reset it). It is an mpv
+- **Equalizer** — the **🎚** button next to repeat opens a panel under the
+  transport bar: on/off, preset and 10 band sliders (32 Hz – 16 kHz, ±12 dB;
+  double-click a slider to reset it). Closed, only the button is shown; it is
+  highlighted while the equalizer is on. It is an mpv
   audio filter labelled `@playlist_pro_eq` (ffmpeg `equalizer` bands, as in
   IINA's own equalizer), so it doesn't replace IINA's equalizer or other
   filters — turning both on stacks their effects. Settings persist.

@@ -160,6 +160,8 @@
   .tbtn.side.active { opacity: 1; color: var(--accent); }
   .tgroup.modes, .tgroup.vol { gap: 6px; }
   .tgroup.vol { min-width: 108px; justify-content: flex-end; }
+  /* Same width as the volume group, so the play controls stay centred */
+  .tgroup.modes { min-width: 108px; }
   .volslider {
     -webkit-appearance: none; appearance: none; width: 78px; height: 4px; border-radius: 2px;
     background: var(--field-bg); cursor: pointer; outline: none;
@@ -169,19 +171,15 @@
     background: var(--accent); box-shadow: 0 0 2px rgba(0,0,0,0.35);
   }
 
-  /* Equalizer: a one-line bar that is always shown, plus band sliders when expanded */
+  /* Equalizer: a panel under the transport bar, opened by its button next to repeat */
   .eq {
-    flex: 0 0 auto; border-top: 1px solid var(--sep); background: var(--toolbar-bg);
-    backdrop-filter: blur(20px); padding: 6px 10px;
+    flex: 0 0 auto; display: none; flex-direction: column; gap: 8px; padding: 6px 10px 8px;
+    border-top: 1px solid var(--sep); background: var(--toolbar-bg); backdrop-filter: blur(20px);
   }
-  .eq-bar { display: flex; align-items: center; gap: 6px; }
-  .eq-bar select.sort { max-width: 130px; }
-  .eq-curve { flex: 1 1 auto; min-width: 30px; height: 20px; }
-  .eq-curve .zero { stroke: var(--sep); stroke-width: 1; }
-  .eq-curve .line { fill: none; stroke: var(--accent); stroke-width: 1.5; }
-  .eq.off .eq-curve .line { stroke: var(--fg-tertiary); }
-  .eq-bands { display: none; justify-content: space-between; gap: 2px; padding: 8px 2px 0; }
-  .eq.expanded .eq-bands { display: flex; }
+  .eq.expanded { display: flex; }
+  .eq-head { display: flex; align-items: center; gap: 6px; }
+  .eq-head select.sort { max-width: 130px; }
+  .eq-bands { display: flex; justify-content: space-between; gap: 2px; padding: 0 2px; }
   .eq.off .eq-bands { opacity: 0.5; }
   .eq-band { flex: 1 1 0; display: flex; flex-direction: column; align-items: center; gap: 4px; min-width: 0; }
   .eq-gain, .eq-freq { font-size: 9.5px; color: var(--fg-secondary); font-variant-numeric: tabular-nums; white-space: nowrap; }
@@ -335,19 +333,6 @@
     <div class="ytm-results" id="ytmResults"></div>
   </div>
 
-  <div class="eq off" id="eq">
-    <div class="eq-bar">
-      <button id="eqEnable" class="btn" title="Turn the equalizer on / off">EQ</button>
-      <select id="eqPreset" class="sort" title="Equalizer preset"></select>
-      <svg class="eq-curve" id="eqCurve" viewBox="0 0 100 20" preserveAspectRatio="none">
-        <line class="zero" x1="0" y1="10" x2="100" y2="10" vector-effect="non-scaling-stroke"/>
-        <polyline class="line" id="eqCurveLine" points="0,10 100,10" vector-effect="non-scaling-stroke"/>
-      </svg>
-      <button id="eqExpand" class="btn icon" title="Show the band sliders">▴</button>
-    </div>
-    <div class="eq-bands" id="eqBands"></div>
-  </div>
-
   <div class="progress-row">
     <span class="ptime" id="pCur">0:00</span>
     <div class="pbar" id="pbar"><div class="pfill" id="pfill"></div></div>
@@ -358,6 +343,7 @@
     <div class="tgroup modes">
       <button id="tShuffle" class="tbtn side" title="Shuffle">🔀</button>
       <button id="tRepeat" class="tbtn side" title="Repeat: off">🔁</button>
+      <button id="tEq" class="tbtn side" title="Show the equalizer">🎚</button>
     </div>
     <div class="tgroup">
       <button id="tPrev" class="tbtn" title="Previous track">⏮</button>
@@ -368,6 +354,14 @@
       <button id="tMute" class="tbtn side" title="Mute">🔊</button>
       <input id="tVol" class="volslider" type="range" min="0" max="100" value="100" title="Volume">
     </div>
+  </div>
+
+  <div class="eq off" id="eq">
+    <div class="eq-head">
+      <button id="eqEnable" class="btn" title="Turn the equalizer on / off">Off</button>
+      <select id="eqPreset" class="sort" title="Equalizer preset"></select>
+    </div>
+    <div class="eq-bands" id="eqBands"></div>
   </div>
 
   <div class="footer">
@@ -914,14 +908,6 @@
       + lo + "%, var(--accent) " + hi + "%, var(--field-bg) " + hi + "%)";
   }
 
-  function renderEqCurve() {
-    var last = eqState.gains.length - 1;
-    var points = eqState.gains.map(function (gain, band) {
-      return (band * 100 / last) + "," + (10 - gain / eqState.maxGain * 9);
-    });
-    $("eqCurveLine").setAttribute("points", points.join(" "));
-  }
-
   function renderEqBands() {
     var sliders = document.querySelectorAll("#eqBands .eq-slider");
     for (var band = 0; band < sliders.length; band++) {
@@ -936,12 +922,14 @@
     var panel = $("eq");
     panel.classList.toggle("off", !eqState.enabled);
     panel.classList.toggle("expanded", eqState.expanded);
-    $("eqEnable").classList.toggle("active", eqState.enabled);
+    var enable = $("eqEnable");
+    enable.classList.toggle("active", eqState.enabled);
+    enable.textContent = eqState.enabled ? "On" : "Off";
     $("eqPreset").value = eqState.preset;
-    var expand = $("eqExpand");
-    expand.textContent = eqState.expanded ? "▾" : "▴";
-    expand.title = eqState.expanded ? "Hide the band sliders" : "Show the band sliders";
-    renderEqCurve();
+    // Like shuffle/repeat, the transport button is highlighted while the equalizer affects the sound.
+    var button = $("tEq");
+    button.classList.toggle("active", eqState.enabled);
+    button.title = eqState.expanded ? "Hide the equalizer" : "Show the equalizer";
     renderEqBands();
   }
 
@@ -1216,7 +1204,7 @@
   $("eqEnable").addEventListener("click", function () {
     if (eqState) send("ui:eq-enable", { enabled: !eqState.enabled });
   });
-  $("eqExpand").addEventListener("click", function () {
+  $("tEq").addEventListener("click", function () {
     if (eqState) send("ui:eq-expand", { expanded: !eqState.expanded });
   });
   $("eqPreset").addEventListener("change", function (e) { send("ui:eq-preset", { key: e.target.value }); });
