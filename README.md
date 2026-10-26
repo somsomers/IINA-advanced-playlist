@@ -17,6 +17,12 @@ opens it.
   playlist → one track, via `loop-playlist`/`loop-file`) and **shuffle**
   (`playlist-shuffle` / `playlist-unshuffle`). Reflects state changed elsewhere.
 - **Seek bar** — current / total time; click or drag to seek (`core.seekTo`).
+- **Equalizer** — a compact bar above the seek bar is always shown: on/off,
+  preset and the current curve. **▴** expands it into 10 band sliders
+  (32 Hz – 16 kHz, ±12 dB; double-click a slider to reset it). It is an mpv
+  audio filter labelled `@playlist_pro_eq` (ffmpeg `equalizer` bands, as in
+  IINA's own equalizer), so it doesn't replace IINA's equalizer or other
+  filters — turning both on stacks their effects. Settings persist.
 - **Configurable hotkeys** — set keys for previous, play, pause, stop, next and
   seek ±10s on the plugin's **Preferences** page. They work inside IINA: in the
   **main player window** (via `iina.input`) and in the **playlist window/sidebar**.
@@ -158,6 +164,7 @@ To ship it as a normal plugin instead, rename the folder to
 | `Info.json`           | Manifest: sidebar tab, preferences page, permissions.       |
 | `main.js`             | Backend (per-window): playlist, tags, cache, hotkeys, I/O.  |
 | `ytmusic.js`          | YouTube Music song search (API + yt-dlp fallback).          |
+| `equalizer.js`        | 10-band equalizer: presets, saved state, mpv audio filter.  |
 | `ui/index.html`       | Self-contained playlist UI (inline CSS+JS).                 |
 | `ui/preferences.html` | Preferences: hotkeys, auto-save, yt-dlp path.               |
 

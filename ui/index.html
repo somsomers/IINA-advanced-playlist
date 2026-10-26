@@ -169,6 +169,34 @@
     background: var(--accent); box-shadow: 0 0 2px rgba(0,0,0,0.35);
   }
 
+  /* Equalizer: a one-line bar that is always shown, plus band sliders when expanded */
+  .eq {
+    flex: 0 0 auto; border-top: 1px solid var(--sep); background: var(--toolbar-bg);
+    backdrop-filter: blur(20px); padding: 6px 10px;
+  }
+  .eq-bar { display: flex; align-items: center; gap: 6px; }
+  .eq-bar select.sort { max-width: 130px; }
+  .eq-curve { flex: 1 1 auto; min-width: 30px; height: 20px; }
+  .eq-curve .zero { stroke: var(--sep); stroke-width: 1; }
+  .eq-curve .line { fill: none; stroke: var(--accent); stroke-width: 1.5; }
+  .eq.off .eq-curve .line { stroke: var(--fg-tertiary); }
+  .eq-bands { display: none; justify-content: space-between; gap: 2px; padding: 8px 2px 0; }
+  .eq.expanded .eq-bands { display: flex; }
+  .eq.off .eq-bands { opacity: 0.5; }
+  .eq-band { flex: 1 1 0; display: flex; flex-direction: column; align-items: center; gap: 4px; min-width: 0; }
+  .eq-gain, .eq-freq { font-size: 9.5px; color: var(--fg-secondary); font-variant-numeric: tabular-nums; white-space: nowrap; }
+  /* A horizontal range rotated upright: vertical range inputs can't be styled reliably */
+  .eq-track { position: relative; width: 18px; height: 84px; }
+  .eq-slider {
+    position: absolute; left: 50%; top: 50%; width: 84px; height: 4px; margin: -2px 0 0 -42px;
+    transform: rotate(-90deg); -webkit-appearance: none; appearance: none; border-radius: 2px;
+    background: var(--field-bg); cursor: pointer; outline: none;
+  }
+  .eq-slider::-webkit-slider-thumb {
+    -webkit-appearance: none; appearance: none; width: 11px; height: 11px; border-radius: 50%;
+    background: var(--accent); box-shadow: 0 0 2px rgba(0,0,0,0.35);
+  }
+
   /* Empty & footer */
   .empty-state { color: var(--fg-secondary); text-align: center; padding: 40px 20px; font-size: 13px; }
   .footer {
@@ -305,6 +333,19 @@
     </div>
     <div class="ytm-status" id="ytmStatus"></div>
     <div class="ytm-results" id="ytmResults"></div>
+  </div>
+
+  <div class="eq off" id="eq">
+    <div class="eq-bar">
+      <button id="eqEnable" class="btn" title="Turn the equalizer on / off">EQ</button>
+      <select id="eqPreset" class="sort" title="Equalizer preset"></select>
+      <svg class="eq-curve" id="eqCurve" viewBox="0 0 100 20" preserveAspectRatio="none">
+        <line class="zero" x1="0" y1="10" x2="100" y2="10" vector-effect="non-scaling-stroke"/>
+        <polyline class="line" id="eqCurveLine" points="0,10 100,10" vector-effect="non-scaling-stroke"/>
+      </svg>
+      <button id="eqExpand" class="btn icon" title="Show the band sliders">▴</button>
+    </div>
+    <div class="eq-bands" id="eqBands"></div>
   </div>
 
   <div class="progress-row">
@@ -832,7 +873,117 @@
     else if (!inQuery) handlePlaybackHotkey(e);
   }
 
+  // ---- equalizer ----
+  // The backend (equalizer.js) owns the state and sends it as "pl:eq" together
+  // with the band frequencies and presets; the band rows are built on first arrival.
+  var EQ_SEND_INTERVAL = 100; // ms between gain updates sent while a slider is dragged
+  var CUSTOM_PRESET = "custom";
+  var eqState = null;          // { enabled, expanded, preset, gains, frequencies, maxGain, presets }
+  var eqPendingGains = {};     // band -> gain waiting to be sent
+  var eqSendTimers = {};       // band -> throttle timer
+  var eqDraggedSlider = null;  // band slider under the mouse button, if any
+
+  function fmtFrequency(hz) { return hz >= 1000 ? (hz / 1000) + "k" : String(hz); }
+  function fmtGain(db) { return (db > 0 ? "+" : "") + (Math.round(db * 10) / 10); }
+
+  function buildEqPresetOptions() {
+    var html = "<option value='" + CUSTOM_PRESET + "' disabled>Custom</option>";
+    eqState.presets.forEach(function (p) { html += "<option value='" + esc(p.key) + "'>" + esc(p.name) + "</option>"; });
+    $("eqPreset").innerHTML = html;
+  }
+
+  function buildEqBands() {
+    var html = "";
+    eqState.frequencies.forEach(function (hz, band) {
+      html += "<div class='eq-band'>"
+        + "<span class='eq-gain' id='eqGain" + band + "'></span>"
+        + "<div class='eq-track'><input class='eq-slider' type='range' step='0.5'"
+        + " min='" + (-eqState.maxGain) + "' max='" + eqState.maxGain + "'"
+        + " data-band='" + band + "' title='" + fmtFrequency(hz) + "Hz — double-click to reset'></div>"
+        + "<span class='eq-freq'>" + fmtFrequency(hz) + "</span></div>";
+    });
+    $("eqBands").innerHTML = html;
+  }
+
+  // Fill the track from the 0 dB middle to the thumb, like the volume slider.
+  function paintEqSlider(slider) {
+    var max = eqState.maxGain;
+    var pct = (Number(slider.value) + max) / (2 * max) * 100;
+    var lo = Math.min(50, pct), hi = Math.max(50, pct);
+    slider.style.background = "linear-gradient(to right, var(--field-bg) " + lo + "%, var(--accent) "
+      + lo + "%, var(--accent) " + hi + "%, var(--field-bg) " + hi + "%)";
+  }
+
+  function renderEqCurve() {
+    var last = eqState.gains.length - 1;
+    var points = eqState.gains.map(function (gain, band) {
+      return (band * 100 / last) + "," + (10 - gain / eqState.maxGain * 9);
+    });
+    $("eqCurveLine").setAttribute("points", points.join(" "));
+  }
+
+  function renderEqBands() {
+    var sliders = document.querySelectorAll("#eqBands .eq-slider");
+    for (var band = 0; band < sliders.length; band++) {
+      // Don't fight the user while they're dragging the slider.
+      if (sliders[band] !== eqDraggedSlider) sliders[band].value = eqState.gains[band];
+      paintEqSlider(sliders[band]);
+      $("eqGain" + band).textContent = fmtGain(Number(sliders[band].value));
+    }
+  }
+
+  function renderEqualizer() {
+    var panel = $("eq");
+    panel.classList.toggle("off", !eqState.enabled);
+    panel.classList.toggle("expanded", eqState.expanded);
+    $("eqEnable").classList.toggle("active", eqState.enabled);
+    $("eqPreset").value = eqState.preset;
+    var expand = $("eqExpand");
+    expand.textContent = eqState.expanded ? "▾" : "▴";
+    expand.title = eqState.expanded ? "Hide the band sliders" : "Show the band sliders";
+    renderEqCurve();
+    renderEqBands();
+  }
+
+  // Send the newest gain of a band at most every EQ_SEND_INTERVAL ms: rebuilding
+  // the audio filter on every mouse move would stutter the sound.
+  function sendBandGainThrottled(band, gain) {
+    eqPendingGains[band] = gain;
+    if (eqSendTimers[band]) return;
+    eqSendTimers[band] = setTimeout(function () {
+      eqSendTimers[band] = null;
+      send("ui:eq-band", { band: band, gain: eqPendingGains[band] });
+    }, EQ_SEND_INTERVAL);
+  }
+
+  // Local feedback first; the backend confirms with "pl:eq".
+  function setBandGain(band, gain) {
+    eqState.gains[band] = gain;
+    eqState.enabled = true;
+    eqState.preset = CUSTOM_PRESET;
+    renderEqualizer();
+    sendBandGainThrottled(band, gain);
+  }
+
+  function onEqSliderInput(e) {
+    if (!e.target.classList.contains("eq-slider")) return;
+    setBandGain(Number(e.target.getAttribute("data-band")), Number(e.target.value));
+  }
+  function onEqSliderReset(e) {
+    if (!e.target.classList.contains("eq-slider")) return;
+    e.target.value = 0;
+    setBandGain(Number(e.target.getAttribute("data-band")), 0);
+  }
+
   // ---- incoming messages ----
+  iina.onMessage("pl:eq", function (state) {
+    if (!state) return;
+    var firstState = !eqState;
+    eqState = state;
+    if (firstState) { buildEqPresetOptions(); buildEqBands(); }
+    renderEqualizer();
+  });
+
   iina.onMessage("pl:state", function (data) {
     items = (data && data.items) || [];
     byPath = {};
@@ -1061,6 +1212,21 @@
   });
   renderTransport();
 
+  // Equalizer (does nothing until the first "pl:eq" arrives)
+  $("eqEnable").addEventListener("click", function () {
+    if (eqState) send("ui:eq-enable", { enabled: !eqState.enabled });
+  });
+  $("eqExpand").addEventListener("click", function () {
+    if (eqState) send("ui:eq-expand", { expanded: !eqState.expanded });
+  });
+  $("eqPreset").addEventListener("change", function (e) { send("ui:eq-preset", { key: e.target.value }); });
+  $("eqBands").addEventListener("input", onEqSliderInput);
+  $("eqBands").addEventListener("dblclick", onEqSliderReset);
+  $("eqBands").addEventListener("mousedown", function (e) {
+    if (e.target.classList.contains("eq-slider")) eqDraggedSlider = e.target;
+  });
+  document.addEventListener("mouseup", function () { eqDraggedSlider = null; });
+
   // Progress bar: click / drag to seek
   var pbar = $("pbar");
   function fracFromEvent(e) {
@@ -1127,6 +1293,8 @@
     }
     // So does the YouTube Music panel — the (hidden) playlist must not react.
     if (isYtmOpen()) { handleYtmKey(e); return; }
+    // Sliders (volume, equalizer bands) keep their native arrow keys; playback hotkeys still work.
+    if (e.target.type === "range") { handlePlaybackHotkey(e); return; }
     if (e.target.tagName === "INPUT") {
       if (e.key === "Escape") { e.target.value = ""; filter = ""; cursor = -1; render(); e.target.blur(); return; }
       // Arrow keys pick a result and Enter/Shift+Enter/Opt+Shift+Enter act on it,

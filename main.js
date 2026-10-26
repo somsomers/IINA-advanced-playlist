@@ -7,9 +7,11 @@
 //       2. background tag scanning (ID3v2/ID3v1, MP4, FLAC, Ogg/Opus) for the rest.
 //   * Persist a metadata cache and named playlists into the plugin's @data folder.
 //   * Search YouTube Music (ytmusic.js) and add the found songs to the playlist.
+//   * Drive the 10-band audio equalizer shown in the playlist UI (equalizer.js).
 
 const { playlist, mpv, event, sidebar, standaloneWindow, menu, core, file, utils, preferences, input, console } = iina;
 const ytMusic = require("./ytmusic.js");
+const equalizer = require("./equalizer.js");
 
 // IINA hands a message to the webview as JSON.parse(String.raw`<json>`), so a
 // backtick inside any string would end that template literal early (the message is
@@ -715,6 +717,22 @@ function broadcastTransport(force) {
   lastTransportSig = sig;
   broadcast("pl:transport", t);
 }
+// ---------------------------------------------------------------------------
+// Equalizer — one state shared by the sidebar and the standalone window.
+// ---------------------------------------------------------------------------
+let eqState = equalizer.loadState();
+
+function broadcastEqualizer() {
+  broadcast("pl:eq", equalizer.describe(eqState));
+}
+// `applyFilter` is false for pure UI changes (collapse/expand), which leave the sound alone.
+function updateEqualizer(newState, applyFilter) {
+  eqState = newState;
+  equalizer.saveState(eqState);
+  if (applyFilter) equalizer.applyToPlayer(eqState);
+  broadcastEqualizer();
+}
+
 function broadcastProgress() {
   if (!uiReady) return;
   let pos = 0, dur = 0, paused = true;
@@ -1340,6 +1358,13 @@ function registerHandlers(surface, isStandalone) {
     broadcastTransport(true);
     broadcastHotkeys();
     broadcastActivePlaylist();
+    broadcastEqualizer();
+  });
+  surface.onMessage("ui:eq-enable", function (d) { updateEqualizer(equalizer.withEnabled(eqState, d && d.enabled), true); });
+  surface.onMessage("ui:eq-expand", function (d) { updateEqualizer(equalizer.withExpanded(eqState, d && d.expanded), false); });
+  surface.onMessage("ui:eq-preset", function (d) { if (d && d.key) updateEqualizer(equalizer.withPreset(eqState, d.key), true); });
+  surface.onMessage("ui:eq-band", function (d) {
+    if (d && typeof d.band === "number" && typeof d.gain === "number") updateEqualizer(equalizer.withBandGain(eqState, d.band, d.gain), true);
   });
   surface.onMessage("ui:play", function (d) { if (d && typeof d.index === "number") playlist.play(d.index); });
   surface.onMessage("ui:queue-next", function (d) { if (d && typeof d.index === "number") queueNext(d.index); });
@@ -1559,6 +1584,15 @@ function refreshCurrentMetadata() {
 // ---------------------------------------------------------------------------
 // Bootstrap
 // ---------------------------------------------------------------------------
+// The audio filter chain lives as long as the player, so the saved equalizer is
+// applied once, when its first file is loaded (mpv is surely ready by then).
+let savedEqualizerApplied = false;
+function applySavedEqualizerOnce() {
+  if (savedEqualizerApplied) return;
+  savedEqualizerApplied = true;
+  equalizer.applyToPlayer(eqState);
+}
+
 loadCache();
 refreshHotkeys(true); // register playback hotkeys for the main player window
 setTimeout(restoreLastPlaylist, RESTORE_CHECK_DELAY);
@@ -1568,6 +1602,7 @@ event.on("iina.file-loaded", function () {
   flushPendingAdds();
   refreshCurrentMetadata(); scheduleState(); broadcastTransport(true); updateWindowTitle();
   if (!shownOnStart) setTimeout(showPlaylistOnStart, SHOW_ON_START_DELAY);
+  applySavedEqualizerOnce();
   // Lazily enrich the currently playing network track (YouTube etc.) via yt-dlp.
   try {
     const l = getRawPlaylist();
